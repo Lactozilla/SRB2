@@ -119,7 +119,7 @@ void I_FinishUpdate (void)
 		//added:16-01-98:use quickie asm routine, last 2 args are
 		//                   src and dest rowbytes
 		//                   (memcpy is as fast as this one...)
-		VID_BlitLinearScreen(screens[0], vid.direct,
+		VID_BlitLinearScreen(screens[SCREEN_MAIN], vid.direct,
 		                     vid.width*vid.bpp, vid.height,
 		                     vid.width*vid.bpp, vid.rowbytes );
 	}
@@ -150,7 +150,7 @@ void I_UpdateNoVsync(void)
 //
 void I_ReadScreen (UINT8 *scr)
 {
-	VID_BlitLinearScreen(screens[0], scr,
+	VID_BlitLinearScreen(screens[SCREEN_MAIN], scr,
 	                     vid.width*vid.bpp, vid.height,
 	                     vid.width*vid.bpp, vid.rowbytes );
 }
@@ -188,7 +188,7 @@ static void I_BlitScreenVesa1(void)
 	// virtual screen buffer size
 	virtualsize = vid.rowbytes * vid.height * SCREENDEPTH;
 
-	p_src  = screens[0];
+	p_src  = screens[SCREEN_MAIN];
 
 	for (i=0; virtualsize > 0; i++ )
 	{

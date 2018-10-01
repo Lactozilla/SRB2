@@ -381,9 +381,9 @@ static void R_AddLine(seg_t *line)
 	curline = line;
 	portalline = false;
 
-	// OPTIMIZE: quickly reject orthogonal back sides.
-	angle1 = R_PointToAngle(line->v1->x, line->v1->y);
-	angle2 = R_PointToAngle(line->v2->x, line->v2->y);
+	/// JimitaMPC
+	angle1 = R_PointToAngleEx(viewx, viewy, line->v1->x, line->v1->y);
+	angle2 = R_PointToAngleEx(viewx, viewy, line->v2->x, line->v2->y);
 
 	// Clip to view edges.
 	span = angle1 - angle2;
@@ -565,6 +565,70 @@ clipsolid:
 	R_ClipSolidWallSegment(x1, x2 - 1);
 }
 
+/// JimitaMPC
+static void R_AddPolyObjectLine(seg_t *line)
+{
+	INT32 x1, x2;
+	angle_t angle1, angle2, span, tspan;
+
+	if (line->polyseg && !(line->polyseg->flags & POF_RENDERSIDES))
+		return;
+
+	curline = line;
+	portalline = false;
+
+	angle1 = R_PointToAngleEx(viewx, viewy, line->v1->x, line->v1->y);
+	angle2 = R_PointToAngleEx(viewx, viewy, line->v2->x, line->v2->y);
+
+	// Clip to view edges.
+	span = angle1 - angle2;
+
+	// Back side? i.e. backface culling?
+	if (span >= ANGLE_180)
+		return;
+
+	// Global angle needed by segcalc.
+	rw_angle1 = angle1;
+	angle1 -= viewangle;
+	angle2 -= viewangle;
+
+	tspan = angle1 + clipangle;
+	if (tspan > doubleclipangle)
+	{
+		tspan -= doubleclipangle;
+
+		// Totally off the left edge?
+		if (tspan >= span)
+			return;
+
+		angle1 = clipangle;
+	}
+	tspan = clipangle - angle2;
+	if (tspan > doubleclipangle)
+	{
+		tspan -= doubleclipangle;
+
+		// Totally off the left edge?
+		if (tspan >= span)
+			return;
+
+		angle2 = -(signed)clipangle;
+	}
+
+	// The seg is in the view range, but not necessarily visible.
+	angle1 = (angle1+ANGLE_90)>>ANGLETOFINESHIFT;
+	angle2 = (angle2+ANGLE_90)>>ANGLETOFINESHIFT;
+	x1 = viewangletox[angle1];
+	x2 = viewangletox[angle2];
+
+	// Does not cross a pixel?
+	if (x1 >= x2)       // killough 1/31/98 -- change == to >= for robustness
+		return;
+
+	backsector = line->backsector;
+	R_ClipPassWallSegment(x1, x2 - 1);
+}
+
 //
 // R_CheckBBox
 // Checks BSP node/subtree bounding box.
@@ -592,26 +656,17 @@ INT32 checkcoord[12][4] =
 
 static boolean R_CheckBBox(fixed_t *bspcoord)
 {
-	INT32 boxpos, sx1, sx2;
+	INT32 boxpos, boxx, boxy;
+	INT32 sx1, sx2;
 	fixed_t px1, py1, px2, py2;
 	angle_t angle1, angle2, span, tspan;
 	cliprange_t *start;
 
 	// Find the corners of the box that define the edges from current viewpoint.
-	if (viewx <= bspcoord[BOXLEFT])
-		boxpos = 0;
-	else if (viewx < bspcoord[BOXRIGHT])
-		boxpos = 1;
-	else
-		boxpos = 2;
+	boxx = viewx <= bspcoord[BOXLEFT] ? 0 : viewx < bspcoord[BOXRIGHT ] ? 1 : 2;
+	boxy = viewy >= bspcoord[BOXTOP ] ? 0 : viewy > bspcoord[BOXBOTTOM] ? 1 : 2;
 
-	if (viewy >= bspcoord[BOXTOP])
-		boxpos |= 0;
-	else if (viewy > bspcoord[BOXBOTTOM])
-		boxpos |= 1<<2;
-	else
-		boxpos |= 2<<2;
-
+	boxpos = (boxy << 2) + boxx;
 	if (boxpos == 5)
 		return true;
 
@@ -621,8 +676,8 @@ static boolean R_CheckBBox(fixed_t *bspcoord)
 	py2 = bspcoord[checkcoord[boxpos][3]];
 
 	// check clip list for an open space
-	angle1 = R_PointToAngle2(viewx>>1, viewy>>1, px1>>1, py1>>1) - viewangle;
-	angle2 = R_PointToAngle2(viewx>>1, viewy>>1, px2>>1, py2>>1) - viewangle;
+	angle1 = R_PointToAngleEx(viewx, viewy, px1, py1) - viewangle;
+	angle2 = R_PointToAngleEx(viewx, viewy, px2, py2) - viewangle;
 
 	span = angle1 - angle2;
 
@@ -661,9 +716,8 @@ static boolean R_CheckBBox(fixed_t *bspcoord)
 	sx2 = viewangletox[angle2];
 
 	// Does not cross a pixel.
-	if (sx1 == sx2)
-		return false;
-	sx2--;
+	if (sx1 > 0) sx1--;
+	if (sx2 < viewwidth - 1) sx2++;
 
 	start = solidsegs;
 	while (start->last < sx2)
@@ -837,7 +891,7 @@ static void R_AddPolyObjects(subsector_t *sub)
 	{
 		qsort(po_ptrs[i]->segs, po_ptrs[i]->segCount, sizeof(seg_t *), R_PolysegCompare);
 		for (j = 0; j < po_ptrs[i]->segCount; ++j)
-			R_AddLine(po_ptrs[i]->segs[j]);
+			R_AddPolyObjectLine(po_ptrs[i]->segs[j]);
 	}
 }
 #endif
@@ -1117,7 +1171,6 @@ static void R_Subsector(size_t num)
 				}
 
 				light = R_GetPlaneLight(frontsector, polysec->floorheight, viewz < polysec->floorheight);
-				light = 0;
 				ffloor[numffloors].plane = R_FindPlane(polysec->floorheight, polysec->floorpic,
 						polysec->lightlevel, xoff, yoff,
 						polysec->floorpic_angle-po->angle,
@@ -1165,7 +1218,6 @@ static void R_Subsector(size_t num)
 				}
 
 				light = R_GetPlaneLight(frontsector, polysec->ceilingheight, viewz < polysec->ceilingheight);
-				light = 0;
 				ffloor[numffloors].plane = R_FindPlane(polysec->ceilingheight, polysec->ceilingpic,
 					polysec->lightlevel, xoff, yoff, polysec->ceilingpic_angle-po->angle,
 					NULL, NULL
@@ -1425,11 +1477,11 @@ void R_RenderBSPNode(INT32 bspnum)
 
 		// Decide which side the view point is on.
 		side = R_PointOnSide(viewx, viewy, bsp);
+
 		// Recursively divide front space.
 		R_RenderBSPNode(bsp->children[side]);
 
 		// Possibly divide back space.
-
 		if (!R_CheckBBox(bsp->bbox[side^1]))
 			return;
 

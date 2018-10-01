@@ -383,7 +383,7 @@ static inline void P_LoadVertexes(lumpnum_t lumpnum)
 }
 
 //
-// Computes the line length in fracunits, the OpenGL render needs this
+// Computes the line length in fracunits
 //
 
 /** Computes the length of a seg in fracunits.
@@ -1403,7 +1403,7 @@ static void P_LoadSideDefs2(lumpnum_t lumpnum)
 			case 606: //SoM: 4/4/2000: Just colormap transfer
 				// SoM: R_CreateColormap will only create a colormap in software mode...
 				// Perhaps we should just call it instead of doing the calculations here.
-				if (rendermode == render_soft || rendermode == render_none)
+				if (rendermode != render_opengl)
 				{
 					if (msd->toptexture[0] == '#' || msd->bottomtexture[0] == '#')
 					{
@@ -2679,6 +2679,13 @@ boolean P_SetupLevel(boolean skipprecip)
 	P_LoadSegs(lastloadedmaplumpnum + ML_SEGS);
 	P_LoadReject(lastloadedmaplumpnum + ML_REJECT);
 	P_GroupLines();
+
+	/// JimitaMPC
+	for (int i=0;i<numsegs;i++)
+	{
+		seg_t *line = segs+i;
+		line->length = (fixed_t)FixedEuclidean(line->v2->x,line->v2->y,line->v1->x,line->v1->y);
+	}
 
 	numdmstarts = numredctfstarts = numbluectfstarts = 0;
 

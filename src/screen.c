@@ -8,7 +8,7 @@
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
 /// \file  screen.c
-/// \brief Handles multiple resolutions, 8bpp/16bpp(highcolor) modes
+/// \brief Handles multiple resolutions
 
 #include "doomdef.h"
 #include "doomstat.h"
@@ -34,21 +34,35 @@
 #define RUSEASM //MSC.NET can't patch itself
 #endif
 
-// --------------------------------------------
-// assembly or c drawer routines for 8bpp/16bpp
-// --------------------------------------------
-void (*wallcolfunc)(void); // new wall column drawer to draw posts >128 high
-void (*colfunc)(void); // standard column, up to 128 high posts
+// -------------------------------
+// assembly or c drawer routines
+// -------------------------------
 
+void (*colfunc)(void);
+void (*spanfunc)(void);
+
+/** Columns **/
 void (*basecolfunc)(void);
-void (*fuzzcolfunc)(void); // standard fuzzy effect column drawer
-void (*transcolfunc)(void); // translation column drawer
-void (*shadecolfunc)(void); // smokie test..
-void (*spanfunc)(void); // span drawer, use a 64x64 tile
-void (*splatfunc)(void); // span drawer w/ transparency
-void (*basespanfunc)(void); // default span func for color mode
-void (*transtransfunc)(void); // translucent translated column drawer
-void (*twosmultipatchfunc)(void); // for cols with transparent pixels
+void (*basewallcolfunc)(void);
+
+void (*translucentcolfunc)(void);
+void (*transmapcolfunc)(void);
+void (*transtransfunc)(void);
+void (*wallcolfunc)(void);
+void (*shadowcolfunc)(void);
+void (*twosmultipatchfunc)(void);
+
+/** Spans **/
+void (*basespanfunc)(void);
+void (*splatspanfunc)(void);
+void (*translucentspanfunc)(void);
+#ifndef NOWATER
+void (*waterspanfunc)(void);
+#endif
+
+void (*tiltedspanfunc)(void);
+void (*tiltedtranslucentspanfunc)(void);
+void (*tiltedsplatfunc)(void);
 
 // ------------------
 // global video state
@@ -87,9 +101,6 @@ UINT8 *scr_borderpatch; // flat used to fill the reduced view borders set at ST_
 
 // =========================================================================
 
-//  Short and Tall sky drawer, for the current color mode
-void (*walldrawerfunc)(void);
-
 boolean R_ASM = true;
 boolean R_486 = false;
 boolean R_586 = false;
@@ -99,6 +110,47 @@ boolean R_3DNow = false;
 boolean R_MMXExt = false;
 boolean R_SSE2 = false;
 
+void SCR_SetupDrawRoutines(void)
+{
+	colfunc = basecolfunc = R_DrawColumn_8;
+	translucentcolfunc = R_DrawTranslucentColumn_8;
+	transmapcolfunc = R_DrawTranslatedColumn_8;
+	transtransfunc = R_DrawTranslatedTranslucentColumn_8;
+
+	basewallcolfunc = R_DrawWallColumn_8;
+	shadowcolfunc = R_DrawColumnShadowed_8;
+	twosmultipatchfunc = R_Draw2sMultiPatchColumn_8;
+
+	spanfunc = basespanfunc = R_DrawSpan_8;
+	splatspanfunc = R_DrawSplat_8;
+	translucentspanfunc = R_DrawTranslucentSpan_8;
+	#ifndef NOWATER
+	waterspanfunc = R_DrawTranslucentWaterSpan_8;
+	#endif
+
+	tiltedspanfunc = R_DrawTiltedSpan_8;
+	tiltedtranslucentspanfunc = R_DrawTiltedTranslucentSpan_8;
+	tiltedsplatfunc = R_DrawTiltedSplat_8;
+
+#ifdef RUSEASM
+	if (R_ASM && cv_useasm.value)
+	{
+		if (R_MMX)
+		{
+			colfunc = basecolfunc = R_DrawColumn_8_MMX;
+			basewallcolfunc = R_DrawWallColumn_8_MMX;
+			twosmultipatchfunc = R_Draw2sMultiPatchColumn_8_MMX;
+			spanfunc = basespanfunc = R_DrawSpan_8_MMX;
+		}
+		else
+		{
+			colfunc = basecolfunc = R_DrawColumn_8_ASM;
+			basewallcolfunc = R_DrawWallColumn_8_ASM;
+			twosmultipatchfunc = R_Draw2sMultiPatchColumn_8_ASM;
+		}
+	}
+#endif
+}
 
 void SCR_SetMode(void)
 {
@@ -109,67 +161,10 @@ void SCR_SetMode(void)
 		return; // should never happen and don't change it during a wipe, BAD!
 
 	VID_SetMode(--setmodeneeded);
-
 	V_SetPalette(0);
-
-	//
-	//  setup the right draw routines for either 8bpp or 16bpp
-	//
-	if (true)//vid.bpp == 1) //Always run in 8bpp. todo: remove all 16bpp code?
-	{
-		spanfunc = basespanfunc = R_DrawSpan_8;
-		splatfunc = R_DrawSplat_8;
-		transcolfunc = R_DrawTranslatedColumn_8;
-		transtransfunc = R_DrawTranslatedTranslucentColumn_8;
-
-		colfunc = basecolfunc = R_DrawColumn_8;
-		shadecolfunc = R_DrawShadeColumn_8;
-		fuzzcolfunc = R_DrawTranslucentColumn_8;
-		walldrawerfunc = R_DrawWallColumn_8;
-		twosmultipatchfunc = R_Draw2sMultiPatchColumn_8;
-#ifdef RUSEASM
-		if (R_ASM)
-		{
-			if (R_MMX)
-			{
-				colfunc = basecolfunc = R_DrawColumn_8_MMX;
-				//shadecolfunc = R_DrawShadeColumn_8_ASM;
-				//fuzzcolfunc = R_DrawTranslucentColumn_8_ASM;
-				walldrawerfunc = R_DrawWallColumn_8_MMX;
-				twosmultipatchfunc = R_Draw2sMultiPatchColumn_8_MMX;
-				spanfunc = basespanfunc = R_DrawSpan_8_MMX;
-			}
-			else
-			{
-				colfunc = basecolfunc = R_DrawColumn_8_ASM;
-				//shadecolfunc = R_DrawShadeColumn_8_ASM;
-				//fuzzcolfunc = R_DrawTranslucentColumn_8_ASM;
-				walldrawerfunc = R_DrawWallColumn_8_ASM;
-				twosmultipatchfunc = R_Draw2sMultiPatchColumn_8_ASM;
-			}
-		}
-#endif
-	}
-/*	else if (vid.bpp > 1)
-	{
-		I_OutputMsg("using highcolor mode\n");
-		spanfunc = basespanfunc = R_DrawSpan_16;
-		transcolfunc = R_DrawTranslatedColumn_16;
-		transtransfunc = R_DrawTranslucentColumn_16; // No 16bit operation for this function
-
-		colfunc = basecolfunc = R_DrawColumn_16;
-		shadecolfunc = NULL; // detect error if used somewhere..
-		fuzzcolfunc = R_DrawTranslucentColumn_16;
-		walldrawerfunc = R_DrawWallColumn_16;
-	}*/
-	else
-		I_Error("unknown bytes per pixel mode %d\n", vid.bpp);
-/*#if !defined (DC) && !defined (WII)
-	if (SCR_IsAspectCorrect(vid.width, vid.height))
-		CONS_Alert(CONS_WARNING, M_GetText("Resolution is not aspect-correct!\nUse a multiple of %dx%d\n"), BASEVIDWIDTH, BASEVIDHEIGHT);
-#endif*/
-	// set the apprpriate drawer for the sky (tall or INT16)
 	setmodeneeded = 0;
+
+	SCR_SetupDrawRoutines();
 }
 
 // do some initial settings for the game loading screen

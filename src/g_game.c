@@ -2601,7 +2601,7 @@ void G_ExitLevel(void)
 	if (gamestate == GS_LEVEL)
 	{
 		gameaction = ga_completed;
-		lastdraw = true;
+		lastdraw = SCREEN_INTERMISSION;
 
 		// If you want your teams scrambled on map change, start the process now.
 		// The teams will scramble at the start of the next round.
@@ -2949,7 +2949,7 @@ void G_UseContinue(void)
 	if (gamestate == GS_LEVEL && !netgame && !multiplayer)
 	{
 		gameaction = ga_startcont;
-		lastdraw = true;
+		lastdraw = SCREEN_ALTBLIT;
 	}
 }
 

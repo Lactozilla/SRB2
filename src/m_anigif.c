@@ -459,7 +459,7 @@ static size_t gifframe_size = 8192;
 static void GIF_framewrite(void)
 {
 	UINT8 *p;
-	UINT8 *movie_screen = screens[2];
+	UINT8 *movie_screen = screens[SCREEN_SSHOT];
 	INT32 blitx, blity, blitw, blith;
 
 	if (!gifframe_data)
@@ -473,7 +473,7 @@ static void GIF_framewrite(void)
 	if (gif_optimize && gif_frames > 0)
 	{
 		// before blit movie_screen points to last frame, cur_screen points to this frame
-		UINT8 *cur_screen = screens[0];
+		UINT8 *cur_screen = screens[SCREEN_MAIN];
 		GIF_optimizeregion(cur_screen, movie_screen, &blitx, &blity, &blitw, &blith);
 
 		// blit to temp screen
@@ -487,12 +487,14 @@ static void GIF_framewrite(void)
 
 		if (gif_frames == 0)
 			I_ReadScreen(movie_screen);
-		movie_screen = screens[0];
+		movie_screen = screens[SCREEN_MAIN];
 	}
 
 	// screen regions are handled in GIF_lzw
 	{
-		UINT16 delay = 3; // todo
+		int d1 = (int)((100.0/NEWTICRATE)*(gif_frames+1));
+		int d2 = (int)((100.0/NEWTICRATE)*(gif_frames));
+		UINT16 delay = d1-d2;
 		INT32 startline;
 
 		WRITEMEM(p, gifframe_gchead, 4);

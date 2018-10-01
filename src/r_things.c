@@ -627,30 +627,16 @@ void R_DrawMaskedColumn(column_t *column)
 		if (dc_yh >= vid.height)
 			dc_yh = vid.height - 1;
 
+		/// JimitaMPC
+		dc_topstep = dc_yl<<FRACBITS;
+
 		if (dc_yl <= dc_yh && dc_yl < vid.height && dc_yh > 0)
 		{
 			dc_source = (UINT8 *)column + 3;
 			dc_texturemid = basetexturemid - (topdelta<<FRACBITS);
 
-			// Drawn by R_DrawColumn.
-			// This stuff is a likely cause of the splitscreen water crash bug.
-			// FIXTHIS: Figure out what "something more proper" is and do it.
-			// quick fix... something more proper should be done!!!
 			if (ylookup[dc_yl])
 				colfunc();
-			else if (colfunc == R_DrawColumn_8
-#ifdef USEASM
-			|| colfunc == R_DrawColumn_8_ASM || colfunc == R_DrawColumn_8_MMX
-#endif
-			)
-			{
-				static INT32 first = 1;
-				if (first)
-				{
-					CONS_Debug(DBG_RENDER, "WARNING: avoiding a crash in %s %d\n", __FILE__, __LINE__);
-					first = 0;
-				}
-			}
 		}
 		column = (column_t *)((UINT8 *)column + column->length + 4);
 	}
@@ -699,6 +685,9 @@ static void R_DrawFlippedMaskedColumn(column_t *column, INT32 texheight)
 		if (dc_yh >= vid.height)
 			dc_yh = vid.height - 1;
 
+		/// JimitaMPC
+		dc_topstep = dc_yl<<FRACBITS;
+
 		if (dc_yl <= dc_yh && dc_yl < vid.height && dc_yh > 0)
 		{
 			dc_source = ZZ_Alloc(column->length);
@@ -706,22 +695,8 @@ static void R_DrawFlippedMaskedColumn(column_t *column, INT32 texheight)
 				*d++ = *s;
 			dc_texturemid = basetexturemid - (topdelta<<FRACBITS);
 
-			// Still drawn by R_DrawColumn.
 			if (ylookup[dc_yl])
 				colfunc();
-			else if (colfunc == R_DrawColumn_8
-#ifdef USEASM
-			|| colfunc == R_DrawColumn_8_ASM || colfunc == R_DrawColumn_8_MMX
-#endif
-			)
-			{
-				static INT32 first = 1;
-				if (first)
-				{
-					CONS_Debug(DBG_RENDER, "WARNING: avoiding a crash in %s %d\n", __FILE__, __LINE__);
-					first = 0;
-				}
-			}
 			Z_Free(dc_source);
 		}
 		column = (column_t *)((UINT8 *)column + column->length + 4);
@@ -759,7 +734,7 @@ static void R_DrawVisSprite(vissprite_t *vis)
 	if ((vis->mobj->flags & MF_BOSS) && (vis->mobj->flags2 & MF2_FRET) && (leveltime & 1)) // Bosses "flash"
 	{
 		// translate green skin to another color
-		colfunc = transcolfunc;
+		colfunc = transmapcolfunc;
 		if (vis->mobj->type == MT_CYBRAKDEMON)
 			dc_translation = R_GetTranslationColormap(TC_ALLWHITE, 0, GTC_CACHE);
 		else if (vis->mobj->type == MT_METALSONIC_BATTLE)
@@ -781,13 +756,13 @@ static void R_DrawVisSprite(vissprite_t *vis)
 	}
 	else if (vis->transmap)
 	{
-		colfunc = fuzzcolfunc;
+		colfunc = translucentcolfunc;
 		dc_transmap = vis->transmap;    //Fab : 29-04-98: translucency table
 	}
 	else if (vis->mobj->color)
 	{
 		// translate green skin to another color
-		colfunc = transcolfunc;
+		colfunc = transmapcolfunc;
 
 		// New colormap stuff for skins Tails 06-07-2002
 		if (vis->mobj->skin && vis->mobj->sprite == SPR_PLAY) // This thing is a player!
@@ -800,7 +775,7 @@ static void R_DrawVisSprite(vissprite_t *vis)
 	}
 	else if (vis->mobj->sprite == SPR_PLAY) // Looks like a player, but doesn't have a color? Get rid of green sonic syndrome.
 	{
-		colfunc = transcolfunc;
+		colfunc = transmapcolfunc;
 		dc_translation = R_GetTranslationColormap(TC_DEFAULT, SKINCOLOR_BLUE, GTC_CACHE);
 	}
 
@@ -839,14 +814,7 @@ static void R_DrawVisSprite(vissprite_t *vis)
 		}
 		dc_texturemid = FixedDiv(dc_texturemid,this_scale);
 
-		//Oh lordy, mercy me. Don't freak out if sprites go offscreen!
-		/*if (vis->xiscale > 0)
-			frac = FixedDiv(frac, this_scale);
-		else if (vis->x1 <= 0)
-			frac = (vis->x1 - vis->x2) * vis->xiscale;*/
-
 		sprtopscreen = centeryfrac - FixedMul(dc_texturemid, spryscale);
-		//dc_hires = 1;
 	}
 
 	x1 = vis->x1;
@@ -876,7 +844,6 @@ static void R_DrawVisSprite(vissprite_t *vis)
 	}
 
 	colfunc = basecolfunc;
-	dc_hires = 0;
 
 	vis->x1 = x1;
 	vis->x2 = x2;
@@ -905,7 +872,7 @@ static void R_DrawPrecipitationVisSprite(vissprite_t *vis)
 
 	if (vis->transmap)
 	{
-		colfunc = fuzzcolfunc;
+		colfunc = translucentcolfunc;
 		dc_transmap = vis->transmap;    //Fab : 29-04-98: translucency table
 	}
 
@@ -974,10 +941,6 @@ static void R_SplitSprite(vissprite_t *sprite, mobj_t *thing)
 			return;
 
 		cutfrac = (INT16)((centeryfrac - FixedMul(testheight - viewz, sprite->scale))>>FRACBITS);
-		if (cutfrac < 0)
-			continue;
-		if (cutfrac > viewheight)
-			return;
 
 		// Found a split! Make a new sprite, copy the old sprite to it, and
 		// adjust the heights.
@@ -1683,13 +1646,14 @@ static drawnode_t nodehead;
 
 static void R_CreateDrawNodes(void)
 {
-	drawnode_t *entry;
 	drawseg_t *ds;
-	INT32 i, p, best, x1, x2;
-	fixed_t bestdelta, delta;
-	vissprite_t *rover;
 	drawnode_t *r2;
+	drawnode_t *entry;
+
+	vissprite_t *rover;
 	visplane_t *plane;
+
+	INT32 i, p, x1, x2, delta;
 	INT32 sintersect;
 	fixed_t scale = 0;
 
@@ -1711,7 +1675,7 @@ static void R_CreateDrawNodes(void)
 			plane = ds->curline->polyseg->visplane;
 			R_PlaneBounds(plane);
 
-			if (plane->low < con_clipviewtop || plane->high > vid.height || plane->high > plane->low)
+			if (plane->low < 0 || plane->high > vid.height || plane->high > plane->low)
 				;
 			else {
 				// Put it in!
@@ -1729,39 +1693,45 @@ static void R_CreateDrawNodes(void)
 		}
 		if (ds->numffloorplanes)
 		{
-			for (i = 0; i < ds->numffloorplanes; i++)
+			drawnode_t * firstdrawnode = nodehead.prev; // previous last drawnode
+			for (p = 0; p < ds->numffloorplanes; p++)
 			{
-				best = -1;
-				bestdelta = 0;
-				for (p = 0; p < ds->numffloorplanes; p++)
-				{
-					if (!ds->ffloorplanes[p])
-						continue;
-					plane = ds->ffloorplanes[p];
-					R_PlaneBounds(plane);
+				fixed_t planecameraz, planecameraz_r2;	/// JimitaMPC
+				if (!ds->ffloorplanes[p])
+					continue;
+				plane = ds->ffloorplanes[p];
+				R_PlaneBounds(plane);
 
-					if (plane->low < con_clipviewtop || plane->high > vid.height || plane->high > plane->low || plane->polyobj)
-					{
-						ds->ffloorplanes[p] = NULL;
-						continue;
-					}
-
-					delta = abs(plane->height - viewz);
-					if (delta > bestdelta)
-					{
-						best = p;
-						bestdelta = delta;
-					}
-				}
-				if (best != -1)
+				if (plane->low < 0 || plane->high > vid.height || plane->high > plane->low || plane->polyobj)
 				{
-					entry = R_CreateDrawNode(&nodehead);
-					entry->plane = ds->ffloorplanes[best];
-					entry->seg = ds;
-					ds->ffloorplanes[best] = NULL;
+					ds->ffloorplanes[p] = NULL;
+					continue;
 				}
-				else
-					break;
+
+				planecameraz = plane->height;
+				#ifdef ESLOPE
+				/// JimitaMPC
+				if (plane->slope)
+					planecameraz = P_GetZAt(plane->slope, viewx, viewy);
+				#endif
+
+				delta = abs(planecameraz-viewz);
+				r2 = firstdrawnode->next;
+				while (r2 != &nodehead)
+				{
+					planecameraz_r2 = r2->plane->height;
+					#ifdef ESLOPE
+					/// JimitaMPC
+					if (r2->plane->slope)
+						planecameraz_r2 = P_GetZAt(r2->plane->slope, viewx, viewy);
+					#endif
+					if (abs(planecameraz_r2-viewz) < delta)
+						break;
+					r2 = r2->next;
+				}
+				entry = R_CreateDrawNode(r2);
+				entry->plane = plane;
+				entry->seg = ds;
 			}
 		}
 	}
@@ -1777,7 +1747,7 @@ static void R_CreateDrawNodes(void)
 		plane = PolyObjects[i].visplane;
 		R_PlaneBounds(plane);
 
-		if (plane->low < con_clipviewtop || plane->high > vid.height || plane->high > plane->low)
+		if (plane->low < 0 || plane->high > vid.height || plane->high > plane->low)
 		{
 			PolyObjects[i].visplane = NULL;
 			continue;
@@ -1795,16 +1765,13 @@ static void R_CreateDrawNodes(void)
 	R_SortVisSprites();
 	for (rover = vsprsortedhead.prev; rover != &vsprsortedhead; rover = rover->prev)
 	{
-		if (rover->szt > vid.height || rover->sz < 0)
-			continue;
-
-		sintersect = (rover->x1 + rover->x2) / 2;
-
+		sintersect = (rover->x1+rover->x2)/2;
 		for (r2 = nodehead.next; r2 != &nodehead; r2 = r2->next)
 		{
 			if (r2->plane)
 			{
 				fixed_t planeobjectz, planecameraz;
+
 				if (r2->plane->minx > rover->x2 || r2->plane->maxx < rover->x1)
 					continue;
 				if (rover->szt > r2->plane->low || rover->sz < r2->plane->high)
@@ -1821,7 +1788,7 @@ static void R_CreateDrawNodes(void)
 
 				if (rover->mobjflags & MF_NOCLIPHEIGHT)
 				{
-					//Objects with NOCLIPHEIGHT can appear halfway in.
+					// Objects with NOCLIPHEIGHT can appear halfway in.
 					if (planecameraz < viewz && rover->pz+(rover->thingheight/2) >= planeobjectz)
 						continue;
 					if (planecameraz > viewz && rover->pzt-(rover->thingheight/2) <= planeobjectz)
@@ -1842,16 +1809,17 @@ static void R_CreateDrawNodes(void)
 
 				x1 = rover->x1;
 				x2 = rover->x2;
+
 				if (x1 < r2->plane->minx) x1 = r2->plane->minx;
 				if (x2 > r2->plane->maxx) x2 = r2->plane->maxx;
 
-				if (r2->seg) // if no seg set, assume the whole thing is in front or something stupid
+				if (r2->seg)
 				{
+					/// Plane gets drawn over.
 					for (i = x1; i <= x2; i++)
-					{
 						if (r2->seg->frontscale[i] > rover->scale)
 							break;
-					}
+					/// Plane draws over.
 					if (i > x2)
 						continue;
 				}
@@ -1865,14 +1833,46 @@ static void R_CreateDrawNodes(void)
 			else if (r2->thickseg)
 			{
 				fixed_t topplaneobjectz, topplanecameraz, botplaneobjectz, botplanecameraz;
-				if (rover->x1 > r2->thickseg->x2 || rover->x2 < r2->thickseg->x1)
+
+				/// JimitaMPC
+				fixed_t thick_scale_left;
+				fixed_t thick_scale_right;
+
+				fixed_t thick_point_left;
+				fixed_t thick_point_right;
+
+				fixed_t intersect_left;
+				fixed_t intersect_right;
+				fixed_t intersect_scale;
+
+				x1 = intersect_left = rover->x1;
+				x2 = intersect_right = rover->x2;
+
+				thick_point_left = r2->thickseg->x1;
+				thick_point_right = r2->thickseg->x2;
+
+				if (x1 > thick_point_right || x2 < thick_point_left)
 					continue;
 
-				scale = r2->thickseg->scale1 > r2->thickseg->scale2 ? r2->thickseg->scale1 : r2->thickseg->scale2;
+				if (r2->thickseg->scale1 > r2->thickseg->scale2)
+				{
+					scale = thick_scale_left = r2->thickseg->scale1;
+					thick_scale_right = r2->thickseg->scale2;
+				}
+				else
+				{
+					scale = thick_scale_right = r2->thickseg->scale2;
+					thick_scale_left = r2->thickseg->scale1;
+				}
+
+				intersect_left += 1;
+				intersect_right -= 1;
+
 				if (scale <= rover->scale)
 					continue;
-				scale = r2->thickseg->scale1 + (r2->thickseg->scalestep * (sintersect - r2->thickseg->x1));
-				if (scale <= rover->scale)
+
+				intersect_scale = thick_scale_left + (r2->thickseg->scalestep * (intersect_right - thick_point_left));
+				if (rover->scale > intersect_scale)
 					continue;
 
 #ifdef ESLOPE
@@ -1891,10 +1891,14 @@ static void R_CreateDrawNodes(void)
 #endif
 					botplaneobjectz = botplanecameraz = *r2->ffloor->bottomheight;
 
-				if ((topplanecameraz > viewz && botplanecameraz < viewz) ||
+				if (!(
+					(topplanecameraz > viewz && botplanecameraz < viewz) ||
 				    (topplanecameraz < viewz && rover->gzt < topplaneobjectz) ||
-				    (botplanecameraz > viewz && rover->gz > botplaneobjectz))
-				{
+				    (botplanecameraz > viewz && rover->gz > botplaneobjectz)))
+				    continue;
+
+				scale = thick_scale_left+(r2->thickseg->scalestep*(sintersect-thick_point_left));
+				if (rover->scale < scale) {
 					entry = R_CreateDrawNode(NULL);
 					(entry->prev = r2->prev)->next = entry;
 					(entry->next = r2)->prev = entry;
@@ -1904,6 +1908,17 @@ static void R_CreateDrawNodes(void)
 			}
 			else if (r2->seg)
 			{
+				/// JimitaMPC
+				fixed_t seg_scale_left;
+				fixed_t seg_scale_right;
+
+				fixed_t seg_point_left;
+				fixed_t seg_point_right;
+
+				fixed_t intersect_left;
+				fixed_t intersect_right;
+				fixed_t intersect_scale;
+
 #if 0 //#ifdef POLYOBJECTS_PLANES
 				if (r2->seg->curline->polyseg && rover->mobj && P_MobjInsidePolyobj(r2->seg->curline->polyseg, rover->mobj)) {
 					// Determine if we need to sort in front of the polyobj, based on the planes. This fixes the issue where
@@ -1918,16 +1933,39 @@ static void R_CreateDrawNodes(void)
 						continue;
 				}
 #endif
-				if (rover->x1 > r2->seg->x2 || rover->x2 < r2->seg->x1)
+
+				x1 = intersect_left = rover->x1;
+				x2 = intersect_right = rover->x2;
+
+				seg_point_left = r2->seg->x1;
+				seg_point_right = r2->seg->x2;
+
+				if (x1 > seg_point_right || x2 < seg_point_left)
 					continue;
 
-				scale = r2->seg->scale1 > r2->seg->scale2 ? r2->seg->scale1 : r2->seg->scale2;
+				if (r2->seg->scale1 > r2->seg->scale2)
+				{
+					scale = seg_scale_left = r2->seg->scale1;
+					seg_scale_right = r2->seg->scale2;
+				}
+				else
+				{
+					scale = seg_scale_right = r2->seg->scale2;
+					seg_scale_left = r2->seg->scale1;
+				}
+
+				intersect_left += 1;
+				intersect_right -= 1;
+
 				if (scale <= rover->scale)
 					continue;
-				scale = r2->seg->scale1 + (r2->seg->scalestep * (sintersect - r2->seg->x1));
 
-				if (rover->scale < scale)
-				{
+				intersect_scale = seg_scale_left + (r2->seg->scalestep * (intersect_right - seg_point_left));
+				if (rover->scale > intersect_scale)
+					continue;
+
+				scale = seg_scale_left + (r2->seg->scalestep * (sintersect - seg_point_left));
+				if (rover->scale < scale) {
 					entry = R_CreateDrawNode(NULL);
 					(entry->prev = r2->prev)->next = entry;
 					(entry->next = r2)->prev = entry;
@@ -1953,6 +1991,7 @@ static void R_CreateDrawNodes(void)
 				}
 			}
 		}
+		// end of list, draw in front of everything else
 		if (r2 == &nodehead)
 		{
 			entry = R_CreateDrawNode(&nodehead);
@@ -2021,9 +2060,6 @@ void R_InitDrawNodes(void)
 //
 // R_DrawSprite
 //
-//Fab : 26-04-98:
-// NOTE : uses con_clipviewtop, so that when console is on,
-//        don't draw the part of sprites hidden under the console
 static void R_DrawSprite(vissprite_t *spr)
 {
 	mfloorclip = spr->clipbot;
@@ -2220,8 +2256,7 @@ void R_ClipSprites(void)
 				spr->clipbot[x] = (INT16)viewheight;
 
 			if (spr->cliptop[x] == -2)
-				//Fab : 26-04-98: was -1, now clips against console bottom
-				spr->cliptop[x] = (INT16)con_clipviewtop;
+				spr->cliptop[x] = -1;
 		}
 	}
 }

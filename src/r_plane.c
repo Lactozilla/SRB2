@@ -89,7 +89,7 @@ static fixed_t planeheight;
 //                (this is to calculate yslopes only when really needed)
 //                (when mouselookin', yslope is moving into yslopetab)
 //                Check R_SetupFrame, R_SetViewSize for more...
-fixed_t yslopetab[MAXVIDHEIGHT*4];
+fixed_t yslopetab[MAXVIDHEIGHT*8];
 fixed_t *yslope;
 
 fixed_t distscale[MAXVIDWIDTH];
@@ -155,128 +155,32 @@ void R_PortalRestoreClipValues(INT32 start, INT32 end, INT16 *ceil, INT16 *floor
 	}
 }
 
-
-//profile stuff ---------------------------------------------------------
-//#define TIMING
-#ifdef TIMING
-#include "p5prof.h"
-         INT64 mycount;
-         INT64 mytotal = 0;
-         UINT32 nombre = 100000;
-#endif
-//profile stuff ---------------------------------------------------------
-
-
 //
 // R_MapPlane
 //
 // Uses global vars:
-//  planeheight
-//  ds_source
 //  basexscale
 //  baseyscale
+//  centerx
 //  viewx
 //  viewy
+//  viewcos
+//  viewsin
+//  viewheight
 //  xoffs
 //  yoffs
-//  planeangle
-//
-// BASIC PRIMITIVE
-//
+//  planeheight
+//  ds_source
+
 #ifndef NOWATER
-static INT32 bgofs;
-static INT32 wtofs=0;
-static INT32 waterofs;
+static INT32 wtofs = 0;
 static boolean itswater;
-#endif
-
-#ifdef __mips__
-//#define NOWATER
-#endif
-
-#ifndef NOWATER
-static void R_DrawTranslucentWaterSpan_8(void)
-{
-	UINT32 xposition;
-	UINT32 yposition;
-	UINT32 xstep, ystep;
-
-	UINT8 *source;
-	UINT8 *colormap;
-	UINT8 *dest;
-	UINT8 *dsrc;
-
-	size_t count;
-
-	// SoM: we only need 6 bits for the integer part (0 thru 63) so the rest
-	// can be used for the fraction part. This allows calculation of the memory address in the
-	// texture with two shifts, an OR and one AND. (see below)
-	// for texture sizes > 64 the amount of precision we can allow will decrease, but only by one
-	// bit per power of two (obviously)
-	// Ok, because I was able to eliminate the variable spot below, this function is now FASTER
-	// than the original span renderer. Whodathunkit?
-	xposition = ds_xfrac << nflatshiftup; yposition = (ds_yfrac + waterofs) << nflatshiftup;
-	xstep = ds_xstep << nflatshiftup; ystep = ds_ystep << nflatshiftup;
-
-	source = ds_source;
-	colormap = ds_colormap;
-	dest = ylookup[ds_y] + columnofs[ds_x1];
-	dsrc = screens[1] + (ds_y+bgofs)*vid.width + ds_x1;
-	count = ds_x2 - ds_x1 + 1;
-
-	while (count >= 8)
-	{
-		// SoM: Why didn't I see this earlier? the spot variable is a waste now because we don't
-		// have the uber complicated math to calculate it now, so that was a memory write we didn't
-		// need!
-		dest[0] = colormap[*(ds_transmap + (source[((yposition >> nflatyshift) & nflatmask) | (xposition >> nflatxshift)] << 8) + *dsrc++)];
-		xposition += xstep;
-		yposition += ystep;
-
-		dest[1] = colormap[*(ds_transmap + (source[((yposition >> nflatyshift) & nflatmask) | (xposition >> nflatxshift)] << 8) + *dsrc++)];
-		xposition += xstep;
-		yposition += ystep;
-
-		dest[2] = colormap[*(ds_transmap + (source[((yposition >> nflatyshift) & nflatmask) | (xposition >> nflatxshift)] << 8) + *dsrc++)];
-		xposition += xstep;
-		yposition += ystep;
-
-		dest[3] = colormap[*(ds_transmap + (source[((yposition >> nflatyshift) & nflatmask) | (xposition >> nflatxshift)] << 8) + *dsrc++)];
-		xposition += xstep;
-		yposition += ystep;
-
-		dest[4] = colormap[*(ds_transmap + (source[((yposition >> nflatyshift) & nflatmask) | (xposition >> nflatxshift)] << 8) + *dsrc++)];
-		xposition += xstep;
-		yposition += ystep;
-
-		dest[5] = colormap[*(ds_transmap + (source[((yposition >> nflatyshift) & nflatmask) | (xposition >> nflatxshift)] << 8) + *dsrc++)];
-		xposition += xstep;
-		yposition += ystep;
-
-		dest[6] = colormap[*(ds_transmap + (source[((yposition >> nflatyshift) & nflatmask) | (xposition >> nflatxshift)] << 8) + *dsrc++)];
-		xposition += xstep;
-		yposition += ystep;
-
-		dest[7] = colormap[*(ds_transmap + (source[((yposition >> nflatyshift) & nflatmask) | (xposition >> nflatxshift)] << 8) + *dsrc++)];
-		xposition += xstep;
-		yposition += ystep;
-
-		dest += 8;
-		count -= 8;
-	}
-	while (count--)
-	{
-		*dest++ = colormap[*(ds_transmap + (source[((yposition >> nflatyshift) & nflatmask) | (xposition >> nflatxshift)] << 8) + *dsrc++)];
-		xposition += xstep;
-		yposition += ystep;
-	}
-}
 #endif
 
 void R_MapPlane(INT32 y, INT32 x1, INT32 x2)
 {
 	angle_t angle;
-	fixed_t distance, length;
+	fixed_t distance, spansteppy;
 	size_t pindex;
 
 #ifdef RANGECHECK
@@ -301,29 +205,35 @@ void R_MapPlane(INT32 y, INT32 x1, INT32 x2)
 		ds_ystep = cachedystep[y];
 	}
 
-	length = FixedMul (distance,distscale[x1]);
-	angle = (currentplane->viewangle + currentplane->plangle + xtoviewangle[x1])>>ANGLETOFINESHIFT;
-	/// \note Wouldn't it be faster just to add viewx and viewy
-	// to the plane's x/yoffs anyway??
+	/// JimitaMPC
+	angle = (currentplane->viewangle + currentplane->plangle)>>ANGLETOFINESHIFT;
+	spansteppy = abs(centery-y);
 
-	ds_xfrac = FixedMul(FINECOSINE(angle), length) + xoffs;
-	ds_yfrac = yoffs - FixedMul(FINESINE(angle), length);
+	if (spansteppy)
+	{
+		ds_xstep = FixedMul(viewsin, planeheight) / spansteppy;
+		ds_ystep = FixedMul(viewcos, planeheight) / spansteppy;
+	}
+
+	ds_xfrac = xoffs + FixedMul(FINECOSINE(angle), distance) + (x1 - centerx) * ds_xstep;
+	ds_yfrac = yoffs - FixedMul(FINESINE  (angle), distance) + (x1 - centerx) * ds_ystep;
 
 #ifndef NOWATER
 	if (itswater)
 	{
 		const INT32 yay = (wtofs + (distance>>9) ) & 8191;
 		// ripples da water texture
-		bgofs = FixedDiv(FINESINE(yay), (1<<12) + (distance>>11))>>FRACBITS;
+		ds_bgofs = FixedDiv(FINESINE(yay), (1<<12) + (distance>>11))>>FRACBITS;
+		angle = (currentplane->viewangle + currentplane->plangle + xtoviewangle[x1])>>ANGLETOFINESHIFT;
 
-		angle = (angle + 2048) & 8191;  //90�
-		ds_xfrac += FixedMul(FINECOSINE(angle), (bgofs<<FRACBITS));
-		ds_yfrac += FixedMul(FINESINE(angle), (bgofs<<FRACBITS));
+		angle = (angle + 2048) & 8191;  // 90 degrees
+		ds_xfrac += FixedMul(FINECOSINE(angle), (ds_bgofs<<FRACBITS));
+		ds_yfrac += FixedMul(FINESINE  (angle), (ds_bgofs<<FRACBITS));
 
-		if (y+bgofs>=viewheight)
-			bgofs = viewheight-y-1;
-		if (y+bgofs<0)
-			bgofs = -y;
+		if (y+ds_bgofs >= viewheight)
+			ds_bgofs = viewheight-y-1;
+		if (y+ds_bgofs < 0)
+			ds_bgofs = -y;
 	}
 #endif
 
@@ -346,27 +256,13 @@ void R_MapPlane(INT32 y, INT32 x1, INT32 x2)
 	ds_x1 = x1;
 	ds_x2 = x2;
 
-	// profile drawer
-#ifdef TIMING
-	ProfZeroTimer();
-#endif
-
 	spanfunc();
-
-#ifdef TIMING
-	RDMSR(0x10, &mycount);
-	mytotal += mycount; // 64bit add
-	if (!(nombre--))
-	I_Error("spanfunc() CPU Spy reports: 0x%d %d\n", *((INT32 *)&mytotal+1), (INT32)mytotal);
-#endif
 }
 
 //
 // R_ClearPlanes
 // At begining of frame.
 //
-// NOTE: Uses con_clipviewtop, so that when console is on,
-//       we don't draw the part of the view hidden under the console.
 void R_ClearPlanes(void)
 {
 	INT32 i, p;
@@ -376,12 +272,12 @@ void R_ClearPlanes(void)
 	for (i = 0; i < viewwidth; i++)
 	{
 		floorclip[i] = (INT16)viewheight;
-		ceilingclip[i] = (INT16)con_clipviewtop;
+		ceilingclip[i] = -1;
 		frontscale[i] = INT32_MAX;
 		for (p = 0; p < MAXFFLOORS; p++)
 		{
 			ffloor[p].f_clip[i] = (INT16)viewheight;
-			ffloor[p].c_clip[i] = (INT16)con_clipviewtop;
+			ffloor[p].c_clip[i] = -1;
 		}
 	}
 
@@ -602,7 +498,7 @@ visplane_t *R_CheckPlane(visplane_t *pl, INT32 start, INT32 stop)
 //
 // R_ExpandPlane
 //
-// This function basically expands the visplane or I_Errors.
+// This function basically expands the visplane.
 // The reason for this is that when creating 3D floor planes, there is no
 // need to create new ones with R_CheckPlane, because 3D floor planes
 // are created by subsector and there is no way a subsector can graphically
@@ -610,7 +506,6 @@ visplane_t *R_CheckPlane(visplane_t *pl, INT32 start, INT32 stop)
 void R_ExpandPlane(visplane_t *pl, INT32 start, INT32 stop)
 {
 	INT32 unionl, unionh;
-//	INT32 x;
 
 #ifdef POLYOBJECTS_PLANES
 	// Don't expand polyobject planes here - we do that on our own.
@@ -619,30 +514,15 @@ void R_ExpandPlane(visplane_t *pl, INT32 start, INT32 stop)
 #endif
 
 	if (start < pl->minx)
-	{
 		unionl = start;
-	}
 	else
-	{
 		unionl = pl->minx;
-	}
 
 	if (stop > pl->maxx)
-	{
 		unionh = stop;
-	}
 	else
-	{
 		unionh = pl->maxx;
-	}
-/*
-	for (x = start; x <= stop; x++)
-		if (pl->top[x] != 0xffff || pl->bottom[x] != 0x0000)
-			break;
 
-	if (x <= stop)
-		I_Error("R_ExpandPlane: planes in same subsector overlap?!\nminx: %d, maxx: %d, start: %d, stop: %d\n", pl->minx, pl->maxx, start, stop);
-*/
 	pl->minx = unionl, pl->maxx = unionh;
 }
 
@@ -683,7 +563,7 @@ void R_DrawPlanes(void)
 	INT32 i;
 
 	spanfunc = basespanfunc;
-	wallcolfunc = walldrawerfunc;
+	wallcolfunc = basewallcolfunc;
 
 	for (i = 0; i < MAXVISPLANES; i++, pl++)
 	{
@@ -714,6 +594,9 @@ void R_DrawPlanes(void)
 					dc_yl = pl->top[x];
 					dc_yh = pl->bottom[x];
 
+					/// JimitaMPC
+					dc_topstep = dc_yl<<FRACBITS;
+
 					if (dc_yl <= dc_yh)
 					{
 						angle = (pl->viewangle + xtoviewangle[x])>>ANGLETOSKYSHIFT;
@@ -738,9 +621,31 @@ void R_DrawPlanes(void)
 		}
 	}
 #ifndef NOWATER
-	waterofs = (leveltime & 1)*16384;
+	ds_waterofs = (leveltime & 1)*16384;
 	wtofs = leveltime * 140;
 #endif
+}
+
+/// JimitaMPC
+void R_SpanShift(INT32 size)
+{
+	INT32 bits = 3;		/// 8x8
+	union {UINT32 i;float x;} u;
+
+	u.x = size;
+	u.i = (1<<29) + (u.i >> 1) - (1<<22);
+	size = (INT32)u.x;
+
+	while ((size & (size-1)) != 0)
+		size++;
+	if (size > 8192) I_Error("R_SpanShift: flat size was too large (%dx%d)\n",size,size);
+	while (1<<bits != size)
+		bits++;
+
+	nflatmask = (size-1)*size;
+	nflatshiftup = 16-bits;
+	nflatxshift = 16+nflatshiftup;
+	nflatyshift = 16+nflatshiftup-bits;
 }
 
 void R_DrawSinglePlane(visplane_t *pl)
@@ -760,8 +665,9 @@ void R_DrawSinglePlane(visplane_t *pl)
 	spanfunc = basespanfunc;
 
 #ifdef POLYOBJECTS_PLANES
-	if (pl->polyobj && pl->polyobj->translucency != 0) {
-		spanfunc = R_DrawTranslucentSpan_8;
+	if (pl->polyobj && pl->polyobj->translucency != 0 && cv_translucency.value)
+	{
+		spanfunc = translucentspanfunc;
 
 		// Hacked up support for alpha value in software mode Tails 09-24-2002 (sidenote: ported to polys 10-15-2014, there was no time travel involved -Red)
 		if (pl->polyobj->translucency >= 10)
@@ -769,10 +675,10 @@ void R_DrawSinglePlane(visplane_t *pl)
 		else if (pl->polyobj->translucency > 0)
 			ds_transmap = transtables + ((pl->polyobj->translucency-1)<<FF_TRANSSHIFT);
 		else // Opaque, but allow transparent flat pixels
-			spanfunc = splatfunc;
+			spanfunc = splatspanfunc;
 
 #ifdef SHITPLANESPARENCY
-		if (spanfunc == splatfunc || (pl->extra_colormap && pl->extra_colormap->fog))
+		if (spanfunc == splatspanfunc || (pl->extra_colormap && pl->extra_colormap->fog))
 #else
 		if (!pl->extra_colormap || !(pl->extra_colormap->fog & 2))
 #endif
@@ -801,9 +707,9 @@ void R_DrawSinglePlane(visplane_t *pl)
 			}
 		}
 
-		if (pl->ffloor->flags & FF_TRANSLUCENT)
+		if (pl->ffloor->flags & FF_TRANSLUCENT && cv_translucency.value)
 		{
-			spanfunc = R_DrawTranslucentSpan_8;
+			spanfunc = translucentspanfunc;
 
 			// Hacked up support for alpha value in software mode Tails 09-24-2002
 			if (pl->ffloor->alpha < 12)
@@ -827,10 +733,10 @@ void R_DrawSinglePlane(visplane_t *pl)
 			else if (pl->ffloor->alpha < 243)
 				ds_transmap = transtables + ((tr_trans10-1)<<FF_TRANSSHIFT);
 			else // Opaque, but allow transparent flat pixels
-				spanfunc = splatfunc;
+				spanfunc = splatspanfunc;
 
 #ifdef SHITPLANESPARENCY
-			if (spanfunc == splatfunc || (pl->extra_colormap && pl->extra_colormap->fog))
+			if (spanfunc == splatspanfunc || (pl->extra_colormap && pl->extra_colormap->fog))
 #else
 			if (!pl->extra_colormap || !(pl->extra_colormap->fog & 2))
 #endif
@@ -855,9 +761,9 @@ void R_DrawSinglePlane(visplane_t *pl)
 			INT32 top, bottom;
 
 			itswater = true;
-			if (spanfunc == R_DrawTranslucentSpan_8)
+			if (spanfunc == translucentspanfunc)
 			{
-				spanfunc = R_DrawTranslucentWaterSpan_8;
+				spanfunc = waterspanfunc;
 
 				// Copy the current scene, ugh
 				top = pl->high-8;
@@ -869,7 +775,7 @@ void R_DrawSinglePlane(visplane_t *pl)
 					bottom = vid.height;
 
 				// Only copy the part of the screen we need
-				VID_BlitLinearScreen((splitscreen && viewplayer == &players[secondarydisplayplayer]) ? screens[0] + (top+(vid.height>>1))*vid.width : screens[0]+((top)*vid.width), screens[1]+((top)*vid.width),
+				VID_BlitLinearScreen((splitscreen && viewplayer == &players[secondarydisplayplayer]) ? screens[SCREEN_MAIN] + (top+(vid.height>>1))*vid.width : screens[SCREEN_MAIN]+((top)*vid.width), screens[SCREEN_ALTBLIT]+((top)*vid.width),
 				                     vid.width, bottom-top,
 				                     vid.width, vid.width);
 			}
@@ -897,52 +803,7 @@ void R_DrawSinglePlane(visplane_t *pl)
 			PU_STATIC); // Stay here until Z_ChangeTag
 
 	size = W_LumpLength(levelflats[pl->picnum].lumpnum);
-
-	switch (size)
-	{
-		case 4194304: // 2048x2048 lump
-			nflatmask = 0x3FF800;
-			nflatxshift = 21;
-			nflatyshift = 10;
-			nflatshiftup = 5;
-			break;
-		case 1048576: // 1024x1024 lump
-			nflatmask = 0xFFC00;
-			nflatxshift = 22;
-			nflatyshift = 12;
-			nflatshiftup = 6;
-			break;
-		case 262144:// 512x512 lump'
-			nflatmask = 0x3FE00;
-			nflatxshift = 23;
-			nflatyshift = 14;
-			nflatshiftup = 7;
-			break;
-		case 65536: // 256x256 lump
-			nflatmask = 0xFF00;
-			nflatxshift = 24;
-			nflatyshift = 16;
-			nflatshiftup = 8;
-			break;
-		case 16384: // 128x128 lump
-			nflatmask = 0x3F80;
-			nflatxshift = 25;
-			nflatyshift = 18;
-			nflatshiftup = 9;
-			break;
-		case 1024: // 32x32 lump
-			nflatmask = 0x3E0;
-			nflatxshift = 27;
-			nflatyshift = 22;
-			nflatshiftup = 11;
-			break;
-		default: // 64x64 lump
-			nflatmask = 0xFC0;
-			nflatxshift = 26;
-			nflatyshift = 20;
-			nflatshiftup = 10;
-			break;
-	}
+	R_SpanShift(size);		/// JimitaMPC
 
 	xoffs = pl->xoffs;
 	yoffs = pl->yoffs;
@@ -1043,12 +904,12 @@ void R_DrawSinglePlane(visplane_t *pl)
 		ds_sv.z *= SFMULT;
 #undef SFMULT
 
-		if (spanfunc == R_DrawTranslucentSpan_8)
-			spanfunc = R_DrawTiltedTranslucentSpan_8;
-		else if (spanfunc == splatfunc)
-			spanfunc = R_DrawTiltedSplat_8;
+		if (spanfunc == translucentspanfunc)
+			spanfunc = tiltedtranslucentspanfunc;
+		else if (spanfunc == splatspanfunc)
+			spanfunc = tiltedsplatfunc;
 		else
-			spanfunc = R_DrawTiltedSpan_8;
+			spanfunc = tiltedspanfunc;
 
 		planezlight = scalelight[light];
 	} else
@@ -1095,11 +956,11 @@ a 'smoothing' of the texture while
 using the palette colors.
 */
 #ifdef QUINCUNX
-	if (spanfunc == R_DrawSpan_8)
+	if (spanfunc == basespanfunc)
 	{
 		INT32 i;
 		ds_transmap = transtables + ((tr_trans50-1)<<FF_TRANSSHIFT);
-		spanfunc = R_DrawTranslucentSpan_8;
+		spanfunc = translucentspanfunc;
 		for (i=0; i<4; i++)
 		{
 			xoffs = pl->xoffs;

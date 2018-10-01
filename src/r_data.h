@@ -56,9 +56,6 @@ extern INT32 *texturewidthmask;
 
 extern fixed_t *textureheight; // needed for texture pegging
 
-extern INT16 color8to16[256]; // remap color index to highcolor
-extern INT16 *hicolormaps; // remap high colors to high colors..
-
 extern CV_PossibleValue_t Color_cons_t[];
 
 // Load TEXTURE1/TEXTURE2/PNAMES definitions, create lookup tables

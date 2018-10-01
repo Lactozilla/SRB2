@@ -365,7 +365,7 @@ static void AM_initVariables(void)
 	INT32 pnum;
 
 	automapactive = true;
-	fb = screens[0];
+	fb = screens[SCREEN_MAIN];
 
 	f_oldloc.x = INT32_MAX;
 	amclock = 0;
@@ -685,7 +685,7 @@ static void AM_clearFB(INT32 color)
 	{
 		INT32 dmapx, dmapy, i, y;
 		static INT32 mapxstart, mapystart;
-		UINT8 *dest = screens[0];
+		UINT8 *dest = screens[SCREEN_MAIN];
 		const UINT8 *src;
 #define MAPLUMPHEIGHT (200 - 42)
 

@@ -902,22 +902,6 @@ static void HWR_DrawSegsSplats(FSurfaceInfo * pSurf)
 			wv->tow = pwallVerts->s;
 		}
 		M_Memcpy(&pSurf2,pSurf,sizeof (FSurfaceInfo));
-		switch (splat->flags & SPLATDRAWMODE_MASK)
-		{
-			case SPLATDRAWMODE_OPAQUE :
-				pSurf2.FlatColor.s.alpha = 0xff;
-				i = PF_Translucent;
-				break;
-			case SPLATDRAWMODE_TRANS :
-				pSurf2.FlatColor.s.alpha = 128;
-				i = PF_Translucent;
-				break;
-			case SPLATDRAWMODE_SHADE :
-				pSurf2.FlatColor.s.alpha = 0xff;
-				i = PF_Substractive;
-				break;
-		}
-
 		HWD.pfnDrawPolygon(&pSurf2, trVerts, 4, i|PF_Modulated|PF_Clip|PF_Decal);
 	}
 }
@@ -3264,7 +3248,6 @@ static void HWR_Subsector(size_t num)
 
 	if (num < numsubsectors)
 	{
-		sscount++;
 		// subsector
 		sub = &subsectors[num];
 		// sector

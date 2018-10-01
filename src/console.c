@@ -58,16 +58,8 @@ static boolean consoleready;  // console prompt is ready
        INT32 con_destlines; // vid lines used by console at final position
 static INT32 con_curlines;  // vid lines currently used by console
 
-       INT32 con_clipviewtop; // clip value for planes & sprites, so that the
-                            // part of the view covered by the console is not
-                            // drawn when not needed, this must be -1 when
-                            // console is off
-
 static INT32 con_hudlines;        // number of console heads up message lines
 static INT32 con_hudtime[MAXHUDLINES];      // remaining time of display for hud msg lines
-
-       INT32 con_clearlines;      // top screen lines to refresh when view reduced
-       boolean con_hudupdate;   // when messages scroll, we need a backgrnd refresh
 
 // console text output
 static char *con_line;          // console text output current line
@@ -345,9 +337,6 @@ void CON_Init(void)
 
 	CON_SetupColormaps();
 
-	//note: CON_Ticker should always execute at least once before D_Display()
-	con_clipviewtop = -1; // -1 does not clip
-
 	con_hudlines = atoi(cons_hudlines.defaultvalue);
 
 	// setup console input filtering
@@ -531,8 +520,7 @@ void CON_ToggleOff(void)
 	con_destlines = 0;
 	con_curlines = 0;
 	CON_ClearHUD();
-	con_forcepic = 0;
-	con_clipviewtop = -1; // remove console clipping of view
+	con_forcepic = false;
 }
 
 boolean CON_Ready(void)
@@ -586,18 +574,6 @@ void CON_Ticker(void)
 	// console movement
 	if (con_destlines != con_curlines)
 		CON_MoveConsole();
-
-	// clip the view, so that the part under the console is not drawn
-	con_clipviewtop = -1;
-	if (cons_backpic.value) // clip only when using an opaque background
-	{
-		if (con_curlines > 0)
-			con_clipviewtop = con_curlines - viewwindowy - 1 - 10;
-		// NOTE: BIG HACK::SUBTRACT 10, SO THAT WATER DON'T COPY LINES OF THE CONSOLE
-		//       WINDOW!!! (draw some more lines behind the bottom of the console)
-		if (con_clipviewtop < 0)
-			con_clipviewtop = -1; // maybe not necessary, provided it's < 0
-	}
 
 	// check if console ready for prompt
 	if (con_destlines >= minheight)
@@ -1068,9 +1044,6 @@ static void CON_Linefeed(void)
 
 	con_line = &con_buffer[(con_cy%con_totallines)*con_width];
 	memset(con_line, ' ', con_width);
-
-	// make sure the view borders are refreshed if hud messages scroll
-	con_hudupdate = true; // see HU_Erase()
 }
 
 // Outputs text into the console text buffer
@@ -1469,9 +1442,6 @@ static void CON_DrawHudlines(void)
 		//V_DrawCharacter(x, y, (p[c]&0xff) | cv_constextsize.value | V_NOSCALESTART, !cv_allcaps.value);
 		y += charheight;
 	}
-
-	// top screen lines that might need clearing when view is reduced
-	con_clearlines = y; // this is handled by HU_Erase();
 }
 
 // Scale a pic_t at 'startx' pos, to 'destwidth' columns.
@@ -1494,8 +1464,8 @@ static inline void CON_DrawBackpic2(pic_t *pic, INT32 startx, INT32 destwidth)
 	const UINT8 *deststop;
 	INT32 frac, fracstep;
 
-	dest = screens[0]+startx;
-	deststop = screens[0] + vid.rowbytes * vid.height;
+	dest = screens[SCREEN_MAIN]+startx;
+	deststop = screens[SCREEN_MAIN] + vid.rowbytes * vid.height;
 
 	for (y = 0; y < con_curlines; y++, dest += vid.width)
 	{
@@ -1544,12 +1514,8 @@ static void CON_DrawConsole(void)
 	INT32 charheight = charwidth;
 	INT32 minheight = 20 * con_scalefactor;	// 20 = 8+8+4
 
-	if (con_curlines <= 0)
+	if (con_curlines <= 0 || rendermode == render_none)
 		return;
-
-	//FIXME: refresh borders only when console bg is translucent
-	con_clearlines = con_curlines; // clear console draw from view borders
-	con_hudupdate = true; // always refresh while console is on
 
 	// draw console background
 	if (cons_backpic.value || con_forcepic)
@@ -1568,6 +1534,10 @@ static void CON_DrawConsole(void)
 			CON_DrawBackpic(con_backpic, 0, vid.width); // picture as background
 
 		W_UnlockCachedPatch(con_backpic);
+
+		/// JimitaMPC
+		if (cons_backpic.value && !con_forcepic)
+			V_DrawFadeConsBack(con_curlines);
 	}
 	else
 	{
@@ -1587,8 +1557,6 @@ static void CON_DrawConsole(void)
 		i--;
 
 	i -= (con_curlines - minheight) / charheight;
-
-	if (rendermode == render_none) return;
 
 	for (y = (con_curlines-minheight) % charheight; y <= con_curlines-minheight; y += charheight, i++)
 	{

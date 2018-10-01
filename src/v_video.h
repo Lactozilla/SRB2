@@ -25,7 +25,7 @@
 // Screen 0 is the screen updated by I_Update screen.
 // Screen 1 is an extra buffer.
 
-extern UINT8 *screens[5];
+extern UINT8 *screens[NUMSCREENS];
 
 extern const UINT8 gammatable[5][256];
 extern consvar_t cv_ticrate, cv_usegamma, cv_allcaps, cv_constextsize;
@@ -42,9 +42,10 @@ const char *R_GetPalname(UINT16 num);
 const char *GetPalette(void);
 
 extern RGBA_t *pLocalPalette;
+extern RGBA_t *pLocalPaletteReal;	/// JimitaMPC
 
 // Retrieve the ARGB value from a palette color index
-#define V_GetColor(color) (pLocalPalette[color&0xFF])
+#define V_GetColor(color) (pLocalPaletteReal[color&0xFF])
 
 // Bottom 8 bits are used for parameter (screen or character)
 #define V_PARAMMASK          0x000000FF

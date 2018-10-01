@@ -16,6 +16,7 @@
 #include "doomdef.h"
 #include "g_game.h"
 #include "g_input.h"
+#include "r_main.h"		/// JimitaMPC
 #include "r_local.h"
 #include "r_splats.h" // faB(21jan): testing
 #include "r_sky.h"
@@ -35,33 +36,16 @@
 #include "hardware/hw_main.h"
 #endif
 
-//profile stuff ---------------------------------------------------------
-//#define TIMING
-#ifdef TIMING
-#include "p5prof.h"
-INT64 mycount;
-INT64 mytotal = 0;
-//unsigned long  nombre = 100000;
-#endif
-//profile stuff ---------------------------------------------------------
-
 // Fineangles in the SCREENWIDTH wide window.
-#define FIELDOFVIEW 2048
+#define FIELDOFVIEW 90
 
-// increment every time a check is made
+size_t framecount;
 size_t validcount = 1;
 
 INT32 centerx, centery;
-
 fixed_t centerxfrac, centeryfrac;
 fixed_t projection;
-fixed_t projectiony; // aspect ratio
-
-// just for profiling purposes
-size_t framecount;
-
-size_t sscount;
-size_t loopcount;
+fixed_t projectiony;
 
 fixed_t viewx, viewy, viewz;
 angle_t viewangle, aimingangle;
@@ -70,6 +54,9 @@ boolean viewsky, skyVisible;
 boolean skyVisible1, skyVisible2; // saved values of skyVisible for P1 and P2, for splitscreen
 sector_t *viewsector;
 player_t *viewplayer;
+
+/// JimitaMPC
+fixed_t focallength;
 
 // PORTALS!
 // You can thank and/or curse JTE for these.
@@ -115,7 +102,6 @@ INT32 viewangletox[FINEANGLES/2];
 angle_t xtoviewangle[MAXVIDWIDTH+1];
 
 lighttable_t *scalelight[LIGHTLEVELS][MAXLIGHTSCALE];
-lighttable_t *scalelightfixed[MAXLIGHTSCALE];
 lighttable_t *zlight[LIGHTLEVELS][MAXLIGHTZ];
 
 // Hack to support extra boom colormaps.
@@ -153,6 +139,8 @@ consvar_t cv_allowmlook = {"allowmlook", "Yes", CV_NETVAR, CV_YesNo, NULL, 0, NU
 consvar_t cv_showhud = {"showhud", "Yes", CV_CALL,  CV_YesNo, R_SetViewSize, 0, NULL, NULL, 0, 0, NULL};
 consvar_t cv_translucenthud = {"translucenthud", "10", CV_SAVE, translucenthud_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
 
+consvar_t cv_useasm = {"useasm", "On", CV_SAVE|CV_CALL, CV_OnOff, SCR_SetupDrawRoutines, 0, NULL, NULL, 0, 0, NULL};
+consvar_t cv_stretchview = {"stretchview", "Off", CV_SAVE|CV_CALL, CV_OnOff, R_ExecuteSetViewSize, 0, NULL, NULL, 0, 0, NULL};
 consvar_t cv_translucency = {"translucency", "On", CV_SAVE, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
 consvar_t cv_drawdist = {"drawdist", "Infinite", CV_SAVE, drawdist_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
 consvar_t cv_drawdist_nights = {"drawdist_nights", "2048", CV_SAVE, drawdist_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
@@ -366,6 +354,30 @@ fixed_t R_PointToDist(fixed_t x, fixed_t y)
 	return R_PointToDist2(viewx, viewy, x, y);
 }
 
+/// JimitaMPC
+angle_t R_PointToAngleEx(INT64 x2, INT64 y2, INT64 x1, INT64 y1)
+{
+	INT64 dx = x1-x2;
+	INT64 dy = y1-y2;
+	if (dx < INT32_MIN || dx > INT32_MAX || dy < INT32_MIN || dy > INT32_MAX)
+	{
+		x1 = (int)(dx / 2 + x2);
+		y1 = (int)(dy / 2 + y2);
+	}
+	return (y1 -= y2, (x1 -= x2) || y1) ?
+	x1 >= 0 ?
+	y1 >= 0 ?
+		(x1 > y1) ? tantoangle[SlopeDivEx(y1,x1)] :                            // octant 0
+		ANGLE_90-tantoangle[SlopeDivEx(x1,y1)] :                               // octant 1
+		x1 > (y1 = -y1) ? 0-tantoangle[SlopeDivEx(y1,x1)] :                    // octant 8
+		ANGLE_270+tantoangle[SlopeDivEx(x1,y1)] :                              // octant 7
+		y1 >= 0 ? (x1 = -x1) > y1 ? ANGLE_180-tantoangle[SlopeDivEx(y1,x1)] :  // octant 3
+		ANGLE_90 + tantoangle[SlopeDivEx(x1,y1)] :                             // octant 2
+		(x1 = -x1) > (y1 = -y1) ? ANGLE_180+tantoangle[SlopeDivEx(y1,x1)] :    // octant 4
+		ANGLE_270-tantoangle[SlopeDivEx(x1,y1)] :                              // octant 5
+		0;
+}
+
 //
 // R_ScaleFromGlobalAngle
 // Returns the texture mapping scale for the current line (horizontal span)
@@ -375,10 +387,10 @@ fixed_t R_PointToDist(fixed_t x, fixed_t y)
 // killough 5/2/98: reformatted, cleaned up
 //
 // note: THIS IS USED ONLY FOR WALLS!
-fixed_t R_ScaleFromGlobalAngle(angle_t visangle)
+fixed_t R_ScaleFromGlobalAngle(angle_t segangle)
 {
-	angle_t anglea = ANGLE_90 + (visangle-viewangle);
-	angle_t angleb = ANGLE_90 + (visangle-rw_normalangle);
+	angle_t anglea = ANGLE_90 + (segangle-viewangle);
+	angle_t angleb = ANGLE_90 + (segangle-rw_normalangle);
 	fixed_t den = FixedMul(rw_distance, FINESINE(anglea>>ANGLETOFINESHIFT));
 	// proff 11/06/98: Changed for high-res
 	fixed_t num = FixedMul(projectiony, FINESINE(angleb>>ANGLETOFINESHIFT));
@@ -386,13 +398,13 @@ fixed_t R_ScaleFromGlobalAngle(angle_t visangle)
 	if (den > num>>16)
 	{
 		num = FixedDiv(num, den);
-		if (num > 64*FRACUNIT)
-			return 64*FRACUNIT;
+		if (num > 512*FRACUNIT)
+			return 512*FRACUNIT;
 		if (num < 256)
 			return 256;
 		return num;
 	}
-	return 64*FRACUNIT;
+	return 512*FRACUNIT;
 }
 
 //
@@ -441,24 +453,24 @@ boolean R_DoCulling(line_t *cullheight, line_t *viewcullheight, fixed_t vz, fixe
 //
 static void R_InitTextureMapping(void)
 {
-	INT32 i;
-	INT32 x;
-	INT32 t;
-	fixed_t focallength;
+	INT32 i,x,t;
+	fixed_t fovtan;
 
-	// Use tangent table to generate viewangletox:
-	//  viewangletox will give the next greatest x
-	//  after the view angle.
-	//
+	/// JimitaMPC
+	/// Fineangles in the SCREENWIDTH wide window.
+	int FOV = round(FIELDOFVIEW*22.567f);
+	fovtan = FINETANGENT(FINEANGLES/4+FOV/2);
+
 	// Calc focallength
 	//  so FIELDOFVIEW angles covers SCREENWIDTH.
-	focallength = FixedDiv(centerxfrac,
-		FINETANGENT(FINEANGLES/4+/*cv_fov.value*/ FIELDOFVIEW/2));
-
+	focallength = FixedDiv(centerxfrac,fovtan);
 #ifdef ESLOPE
 	focallengthf = FIXED_TO_FLOAT(focallength);
 #endif
 
+	// Use tangent table to generate viewangletox:
+	//  viewangletox will give the next greatest x
+	//  after the view angle.
 	for (i = 0; i < FINEANGLES/2; i++)
 	{
 		if (FINETANGENT(i) > FRACUNIT*2)
@@ -595,8 +607,9 @@ void R_ExecuteSetViewSize(void)
 	centeryfrac = centery<<FRACBITS;
 
 	projection = centerxfrac;
-	//projectiony = (((vid.height*centerx*BASEVIDWIDTH)/BASEVIDHEIGHT)/vid.width)<<FRACBITS;
 	projectiony = centerxfrac;
+	if (cv_stretchview.value)	/// JimitaMPC
+		projectiony = (((vid.height*centerx*BASEVIDWIDTH)/BASEVIDHEIGHT)/vid.width)<<FRACBITS;
 
 	R_InitViewBuffer(scaledviewwidth, viewheight);
 
@@ -615,13 +628,20 @@ void R_ExecuteSetViewSize(void)
 	R_SetSkyScale();
 
 	// planes
-	//aspectx = (((vid.height*centerx*BASEVIDWIDTH)/BASEVIDHEIGHT)/vid.width);
 	aspectx = centerx;
+	if (cv_stretchview.value)	/// JimitaMPC
+		aspectx = (((vid.height*centerx*BASEVIDWIDTH)/BASEVIDHEIGHT)/vid.width);
 
 	if (rendermode == render_soft)
 	{
-		// this is only used for planes rendering in software mode
-		j = viewheight*4;
+		/// JimitaMPC
+		int max = MAXVIDHEIGHT*8;
+		for (i = 0; i < max; i++)
+			yslopetab[i] = 0;
+		j = viewheight*8;
+		if (j > max)
+			j = max;
+
 		for (i = 0; i < j; i++)
 		{
 			dy = ((i - viewheight*2)<<FRACBITS) + FRACUNIT/2;
@@ -672,21 +692,19 @@ void R_ExecuteSetViewSize(void)
 void R_Init(void)
 {
 	// screensize independent
-	//I_OutputMsg("\nR_InitData");
+	CONS_Printf("R_InitData...\n");
 	R_InitData();
 
-	//I_OutputMsg("\nR_InitViewBorder");
-	R_InitViewBorder();
+	CONS_Printf("R_SetViewSize...\n");
 	R_SetViewSize(); // setsizeneeded is set true
 
-	//I_OutputMsg("\nR_InitPlanes");
+	CONS_Printf("R_InitPlanes...\n");
 	R_InitPlanes();
 
-	// this is now done by SCR_Recalc() at the first mode set
-	//I_OutputMsg("\nR_InitLightTables");
+	CONS_Printf("R_InitLightTables...\n");
 	R_InitLightTables();
 
-	//I_OutputMsg("\nR_InitTranslationTables\n");
+	CONS_Printf("R_InitTranslationTables...\n");
 	R_InitTranslationTables();
 
 	R_InitDrawNodes();
@@ -964,8 +982,6 @@ void R_SkyboxFrame(player_t *player)
 	viewsin = FINESINE(viewangle>>ANGLETOFINESHIFT);
 	viewcos = FINECOSINE(viewangle>>ANGLETOFINESHIFT);
 
-	sscount = 0;
-
 	// recalc necessary stuff for mouseaiming
 	// slopes are already calculated for the full possible view (which is 4*viewheight).
 
@@ -1088,8 +1104,6 @@ void R_SetupFrame(player_t *player, boolean skybox)
 
 	viewsin = FINESINE(viewangle>>ANGLETOFINESHIFT);
 	viewcos = FINECOSINE(viewangle>>ANGLETOFINESHIFT);
-
-	sscount = 0;
 
 	// recalc necessary stuff for mouseaiming
 	// slopes are already calculated for the full possible view (which is 4*viewheight).
@@ -1288,21 +1302,8 @@ void R_RenderPlayerView(player_t *player)
 	NetUpdate();
 
 	// The head node is the last node output.
-
-//profile stuff ---------------------------------------------------------
-#ifdef TIMING
-	mytotal = 0;
-	ProfZeroTimer();
-#endif
 	R_RenderBSPNode((INT32)numnodes - 1);
 	R_ClipSprites();
-#ifdef TIMING
-	RDMSR(0x10, &mycount);
-	mytotal += mycount; // 64bit add
-
-	CONS_Debug(DBG_RENDER, "RenderBSPNode: 0x%d %d\n", *((INT32 *)&mytotal + 1), (INT32)mytotal);
-#endif
-//profile stuff ---------------------------------------------------------
 
 	// PORTAL RENDERING
 	for(portal = portal_base; portal; portal = portal_base)
@@ -1371,8 +1372,10 @@ void R_RegisterEngineStuff(void)
 	if (dedicated)
 		return;
 
-	CV_RegisterVar(&cv_precipdensity);
+	CV_RegisterVar(&cv_useasm);
+	CV_RegisterVar(&cv_stretchview);
 	CV_RegisterVar(&cv_translucency);
+	CV_RegisterVar(&cv_precipdensity);
 	CV_RegisterVar(&cv_drawdist);
 	CV_RegisterVar(&cv_drawdist_nights);
 	CV_RegisterVar(&cv_drawdist_precip);

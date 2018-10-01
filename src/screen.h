@@ -8,7 +8,7 @@
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
 /// \file  screen.h
-/// \brief Handles multiple resolutions, 8bpp/16bpp(highcolor) modes
+/// \brief Handles multiple resolutions
 
 #ifndef __SCREEN_H__
 #define __SCREEN_H__
@@ -31,8 +31,24 @@
 #if defined (DC) || defined (_WIN32_WCE) || defined (PSP) || defined (NOPOSTPROCESSING)
 #define NUMSCREENS 2
 #else
-#define NUMSCREENS 5
+#define NUMSCREENS 7
 #endif
+
+/// JimitaMPC
+// screens[0] = main display window
+// screens[1] = back screen, alternative blitting
+// screens[2] = screenshot/gif movie buffer
+// screens[3] = fade screen start
+// screens[4] = fade screen end
+// screens[5] = postimage tempoarary buffer
+// screens[6] = intermission screen buffer
+#define SCREEN_MAIN 0
+#define SCREEN_ALTBLIT 1
+#define SCREEN_SSHOT 2
+#define SCREEN_FADESTART 3
+#define SCREEN_FADEEND 4
+#define SCREEN_POSTIMAGE 5
+#define SCREEN_INTERMISSION 6
 
 // Size of statusbar.
 #define ST_HEIGHT 32
@@ -53,8 +69,8 @@
 #define MAXVIDWIDTH 640
 #define MAXVIDHEIGHT 480
 #else
-#define MAXVIDWIDTH 1920 // don't set this too high because actually
-#define MAXVIDHEIGHT 1200 // lots of tables are allocated with the MAX size.
+#define MAXVIDWIDTH 10240		/// JimitaMPC
+#define MAXVIDHEIGHT 4320		/// JimitaMPC
 #endif
 #define BASEVIDWIDTH 320 // NEVER CHANGE THIS! This is the original
 #define BASEVIDHEIGHT 200 // resolution of the graphics.
@@ -106,7 +122,7 @@ typedef struct vmode_s
 	char *name;
 	UINT32 width, height;
 	UINT32 rowbytes; // bytes per scanline
-	UINT32 bytesperpixel; // 1 for 256c, 2 for highcolor
+	UINT32 bytesperpixel;
 	INT32 windowed; // if true this is a windowed mode
 	INT32 numpages;
 	vesa_extra_t *pextradata; // vesa mode extra data
@@ -121,21 +137,35 @@ typedef struct vmode_s
 #define NUMSPECIALMODES  4
 extern vmode_t specialmodes[NUMSPECIALMODES];
 
-// ---------------------------------------------
-// color mode dependent drawer function pointers
-// ---------------------------------------------
+// ---------------------------
+// drawer function pointers
+// ---------------------------
 
-extern void (*wallcolfunc)(void);
 extern void (*colfunc)(void);
-extern void (*basecolfunc)(void);
-extern void (*fuzzcolfunc)(void);
-extern void (*transcolfunc)(void);
-extern void (*shadecolfunc)(void);
 extern void (*spanfunc)(void);
-extern void (*basespanfunc)(void);
-extern void (*splatfunc)(void);
+
+/** Columns **/
+extern void (*basecolfunc)(void);
+extern void (*basewallcolfunc)(void);
+
+extern void (*translucentcolfunc)(void);
+extern void (*transmapcolfunc)(void);
 extern void (*transtransfunc)(void);
+extern void (*wallcolfunc)(void);
+void (*shadowcolfunc)(void);
 extern void (*twosmultipatchfunc)(void);
+
+/** Spans **/
+extern void (*basespanfunc)(void);
+extern void (*splatspanfunc)(void);
+extern void (*translucentspanfunc)(void);
+#ifndef NOWATER
+extern void (*waterspanfunc)(void);
+#endif
+
+extern void (*tiltedspanfunc)(void);
+extern void (*tiltedtranslucentspanfunc)(void);
+extern void (*tiltedsplatfunc)(void);
 
 // -----
 // CPUID
@@ -161,11 +191,9 @@ extern consvar_t cv_scr_width, cv_scr_height, cv_scr_depth, cv_renderview, cv_fu
 // wait for page flipping to end or not
 extern consvar_t cv_vidwait;
 
-// quick fix for tall/short skies, depending on bytesperpixel
-extern void (*walldrawerfunc)(void);
-
 // Change video mode, only at the start of a refresh.
 void SCR_SetMode(void);
+void SCR_SetupDrawRoutines(void);		/// JimitaMPC
 // Recalc screen size dependent stuff
 void SCR_Recalc(void);
 // Check parms once at startup

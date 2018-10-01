@@ -573,8 +573,10 @@ typedef struct seg_s
 	sector_t *frontsector;
 	sector_t *backsector;
 
+	/// JimitaMPC
+	fixed_t length; // length of the seg
 #ifdef HWRENDER
-	float flength; // length of the seg, used by hardware renderer
+	float flength; // used by hardware renderer
 
 	lightmap_t *lightmaps; // for static lightmap
 #endif
