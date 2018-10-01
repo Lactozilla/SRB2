@@ -3740,7 +3740,6 @@ void HWR_InitTextureMapping(void)
 	angle_t i;
 	INT32 x;
 	INT32 t;
-	fixed_t focallength;
 	fixed_t grcenterx;
 	fixed_t grcenterxfrac;
 	INT32 grviewwidth;

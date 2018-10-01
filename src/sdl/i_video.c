@@ -183,12 +183,12 @@ static void SDLSetMode(INT32 width, INT32 height, SDL_bool fullscreen)
 	int bpp = 16;
 	int sw_texture_format = SDL_PIXELFORMAT_ABGR8888;
 
-	realwidth = vid.width;
-	realheight = vid.height;
-
 	/// JimitaMPC
 	SDL_DisplayMode monitor;
 	int display_width, display_height;
+
+	realwidth = vid.width;
+	realheight = vid.height;
 
 	SDL_GetCurrentDisplayMode(0, &monitor);
 	display_width = monitor.w;

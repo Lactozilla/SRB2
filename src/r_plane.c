@@ -627,7 +627,7 @@ void R_DrawPlanes(void)
 }
 
 /// JimitaMPC
-void R_SpanShift(INT32 size)
+static void R_SpanShift(INT32 size)
 {
 	INT32 bits = 3;		/// 8x8
 	union {UINT32 i;float x;} u;

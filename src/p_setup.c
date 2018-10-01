@@ -2487,6 +2487,7 @@ boolean P_SetupLevel(boolean skipprecip)
 	// 99% of the things already did, so.
 	// Map header should always be in place at this point
 	INT32 i, loadprecip = 1, ranspecialwipe = 0;
+	size_t j;
 	INT32 loademblems = 1;
 	INT32 fromnetsave = 0;
 	boolean loadedbm = false;
@@ -2681,9 +2682,9 @@ boolean P_SetupLevel(boolean skipprecip)
 	P_GroupLines();
 
 	/// JimitaMPC
-	for (int i=0;i<numsegs;i++)
+	for (j = 0; j < numsegs; j++)
 	{
-		seg_t *line = segs+i;
+		seg_t *line = segs+j;
 		line->length = (fixed_t)FixedEuclidean(line->v2->x,line->v2->y,line->v1->x,line->v1->y);
 	}
 
