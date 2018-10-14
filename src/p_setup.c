@@ -383,7 +383,7 @@ static inline void P_LoadVertexes(lumpnum_t lumpnum)
 }
 
 //
-// Computes the line length in fracunits, the OpenGL render needs this
+// Computes the line length in fracunits
 //
 
 /** Computes the length of a seg in fracunits.
@@ -1403,7 +1403,7 @@ static void P_LoadSideDefs2(lumpnum_t lumpnum)
 			case 606: //SoM: 4/4/2000: Just colormap transfer
 				// SoM: R_CreateColormap will only create a colormap in software mode...
 				// Perhaps we should just call it instead of doing the calculations here.
-				if (rendermode == render_soft || rendermode == render_none)
+				if (rendermode != render_opengl)
 				{
 					if (msd->toptexture[0] == '#' || msd->bottomtexture[0] == '#')
 					{
@@ -2487,6 +2487,7 @@ boolean P_SetupLevel(boolean skipprecip)
 	// 99% of the things already did, so.
 	// Map header should always be in place at this point
 	INT32 i, loadprecip = 1, ranspecialwipe = 0;
+	size_t j;
 	INT32 loademblems = 1;
 	INT32 fromnetsave = 0;
 	boolean loadedbm = false;
@@ -2673,13 +2674,19 @@ boolean P_SetupLevel(boolean skipprecip)
 		P_CreateBlockMap(); // Graue 02-29-2004
 	P_LoadSideDefs2(lastloadedmaplumpnum + ML_SIDEDEFS);
 
-	R_MakeColormaps();
 	P_LoadLineDefs2();
 	P_LoadSubsectors(lastloadedmaplumpnum + ML_SSECTORS);
 	P_LoadNodes(lastloadedmaplumpnum + ML_NODES);
 	P_LoadSegs(lastloadedmaplumpnum + ML_SEGS);
 	P_LoadReject(lastloadedmaplumpnum + ML_REJECT);
 	P_GroupLines();
+
+	/// JimitaMPC
+	for (j = 0; j < numsegs; j++)
+	{
+		seg_t *line = segs+j;
+		line->length = (fixed_t)FixedEuclidean(line->v2->x,line->v2->y,line->v1->x,line->v1->y);
+	}
 
 	numdmstarts = numredctfstarts = numbluectfstarts = 0;
 

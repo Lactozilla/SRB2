@@ -104,11 +104,6 @@ extern angle_t xtoviewangle[MAXVIDWIDTH+1];
 
 extern fixed_t rw_distance;
 extern angle_t rw_normalangle;
-
-// angle to line origin
 extern angle_t rw_angle1;
-
-// Segs count?
-extern size_t sscount;
 
 #endif

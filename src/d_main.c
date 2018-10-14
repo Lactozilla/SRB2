@@ -114,7 +114,7 @@ static char *startupwadfiles[MAX_WADFILES];
 boolean devparm = false; // started game with -devparm
 
 boolean singletics = false; // timedemo
-boolean lastdraw = false;
+UINT8 lastdraw = 0;
 
 postimg_t postimgtype = postimg_none;
 INT32 postimgparam;
@@ -321,14 +321,12 @@ static void D_Display(void)
 		case GS_LEVEL:
 			if (!gametic)
 				break;
-			HU_Erase();
 			if (automapactive)
 				AM_Drawer();
 			break;
 
 		case GS_INTERMISSION:
 			Y_IntermissionDrawer();
-			HU_Erase();
 			HU_Drawer();
 			break;
 
@@ -343,7 +341,6 @@ static void D_Display(void)
 
 		case GS_CUTSCENE:
 			F_CutsceneDrawer();
-			HU_Erase();
 			HU_Drawer();
 			break;
 
@@ -362,7 +359,6 @@ static void D_Display(void)
 
 		case GS_CREDITS:
 			F_CreditDrawer();
-			HU_Erase();
 			HU_Drawer();
 			break;
 
@@ -386,7 +382,7 @@ static void D_Display(void)
 		{
 			if (players[displayplayer].mo || players[displayplayer].playerstate == PST_DEAD)
 			{
-				topleft = screens[0] + viewwindowy*vid.width + viewwindowx;
+				topleft = screens[SCREEN_MAIN] + viewwindowy*vid.width + viewwindowx;
 				objectsdrawn = 0;
 #ifdef HWRENDER
 				if (rendermode != render_soft)
@@ -410,7 +406,7 @@ static void D_Display(void)
 					viewwindowy = vid.height / 2;
 					M_Memcpy(ylookup, ylookup2, viewheight*sizeof (ylookup[0]));
 
-					topleft = screens[0] + viewwindowy*vid.width + viewwindowx;
+					topleft = screens[SCREEN_MAIN] + viewwindowy*vid.width + viewwindowx;
 
 					R_RenderPlayerView(&players[secondarydisplayplayer]);
 
@@ -430,10 +426,10 @@ static void D_Display(void)
 		{
 			if (rendermode == render_soft)
 			{
-				VID_BlitLinearScreen(screens[0], screens[1], vid.width*vid.bpp, vid.height, vid.width*vid.bpp, vid.rowbytes);
+				VID_BlitLinearScreen(screens[SCREEN_MAIN], screens[lastdraw], vid.width*vid.bpp, vid.height, vid.width*vid.bpp, vid.rowbytes);
 				usebuffer = true;
 			}
-			lastdraw = false;
+			lastdraw = 0;
 		}
 
 		ST_Drawer();

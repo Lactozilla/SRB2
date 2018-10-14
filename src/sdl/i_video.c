@@ -61,6 +61,7 @@
 #include "../m_argv.h"
 #include "../m_menu.h"
 #include "../d_main.h"
+#include "../r_local.h"
 #include "../s_sound.h"
 #include "../i_sound.h"  // midi pause/unpause
 #include "../i_joy.h"
@@ -89,13 +90,16 @@ static INT32 numVidModes = -1;
 */
 static char vidModeName[33][32]; // allow 33 different modes
 
-rendermode_t rendermode=render_soft;
-
-boolean highcolor = false;
+rendermode_t rendermode = render_soft;
 
 // synchronize page flipping with screen refresh
 consvar_t cv_vidwait = {"vid_wait", "On", CV_SAVE, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
-static consvar_t cv_stretch = {"stretch", "Off", CV_SAVE|CV_NOSHOWHELP, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
+
+/// JimitaMPC
+static INT32 resizedvidwidth = 320;
+static INT32 resizedvidheight = 200;
+
+static consvar_t cv_resizeview = {"resizeview", "Off", CV_SAVE|CV_NOSHOWHELP, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
 
 UINT8 graphics_started = 0; // Is used in console.c and screen.c
 
@@ -147,10 +151,13 @@ static INT32 windowedModes[MAXWINMODES][2] =
 	{ 7680,4320},	/// JimitaMPC
 	{ 3840,2160},	/// JimitaMPC
 	{ 2048,1080},	/// JimitaMPC
+
     {1920,1200}, // 1.60,6.00
     {1920,1080}, // 1.66
     {1680,1050}, // 1.60,5.25
     {1600,1200}, // 1.33
+
+
 	{1600, 900}, // 1.66
 	{1366, 768}, // 1.66
 	{1440, 900}, // 1.60,4.50
@@ -183,8 +190,27 @@ static void SDLSetMode(INT32 width, INT32 height, SDL_bool fullscreen)
 	int bpp = 16;
 	int sw_texture_format = SDL_PIXELFORMAT_ABGR8888;
 
+	/// JimitaMPC
+	SDL_DisplayMode monitor;
+	int display_width, display_height;
+
 	realwidth = vid.width;
 	realheight = vid.height;
+
+	SDL_GetCurrentDisplayMode(0, &monitor);
+	display_width = monitor.w;
+	display_height = monitor.h;
+
+	resizedvidwidth = vid.width;
+	resizedvidheight = vid.height;
+
+	if (cv_resizeview.value)
+	{
+		if (width > display_width)
+			realwidth = resizedvidwidth = display_width;
+		if (height > display_height)
+			realheight = resizedvidheight = display_height;
+	}
 
 	if (window)
 	{
@@ -201,7 +227,7 @@ static void SDLSetMode(INT32 width, INT32 height, SDL_bool fullscreen)
 				SDL_SetWindowFullscreen(window, 0);
 			}
 			// Reposition window only in windowed mode
-			SDL_SetWindowSize(window, width, height);
+			SDL_SetWindowSize(window, resizedvidwidth, resizedvidheight);
 			SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 		}
 	}
@@ -210,24 +236,20 @@ static void SDLSetMode(INT32 width, INT32 height, SDL_bool fullscreen)
 		Impl_CreateWindow(fullscreen);
 		Impl_SetWindowIcon();
 		wasfullscreen = fullscreen;
-		SDL_SetWindowSize(window, width, height);
+		SDL_SetWindowSize(window, resizedvidwidth, resizedvidheight);
 		if (fullscreen)
-		{
 			SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-		}
 	}
 
 #ifdef HWRENDER
 	if (rendermode == render_opengl)
-	{
-		OglSdlSurface(vid.width, vid.height);
-	}
+		OglSdlSurface(resizedvidwidth, resizedvidheight);
 #endif
 
 	if (rendermode == render_soft)
 	{
 		SDL_RenderClear(renderer);
-		SDL_RenderSetLogicalSize(renderer, width, height);
+		SDL_RenderSetLogicalSize(renderer, resizedvidwidth, resizedvidheight);
 		// Set up Texture
 		realwidth = width;
 		realheight = height;
@@ -939,33 +961,6 @@ void I_UpdateNoBlit(void)
 	exposevideo = SDL_FALSE;
 }
 
-// I_SkipFrame
-//
-// Returns true if it thinks we can afford to skip this frame
-// from PrBoom's src/SDL/i_video.c
-static inline boolean I_SkipFrame(void)
-{
-	static boolean skip = false;
-
-	if (rendermode != render_soft)
-		return false;
-
-	skip = !skip;
-
-	switch (gamestate)
-	{
-		case GS_LEVEL:
-			if (!paused)
-				return false;
-			/* FALLTHRU */
-		case GS_TIMEATTACK:
-		case GS_WAITINGPLAYERS:
-			return skip; // Skip odd frames
-		default:
-			return false;
-	}
-}
-
 //
 // I_FinishUpdate
 //
@@ -974,13 +969,10 @@ void I_FinishUpdate(void)
 	if (rendermode == render_none)
 		return; //Alam: No software or OpenGl surface
 
-	if (I_SkipFrame())
-		return;
-
 	if (cv_ticrate.value)
 		SCR_DisplayTicRate();
 
-	if (rendermode == render_soft && screens[0])
+	if (rendermode == render_soft && screens[SCREEN_MAIN])
 	{
 		SDL_Rect rect;
 
@@ -1034,7 +1026,7 @@ void I_ReadScreen(UINT8 *scr)
 	if (rendermode != render_soft)
 		I_Error ("I_ReadScreen: called while in non-software mode");
 	else
-		VID_BlitLinearScreen(screens[0], scr,
+		VID_BlitLinearScreen(screens[SCREEN_MAIN], scr,
 			vid.width*vid.bpp, vid.height,
 			vid.rowbytes, vid.rowbytes);
 }
@@ -1349,12 +1341,12 @@ static void Impl_VideoSetupSDLBuffer(void)
 	// Set up the SDL palletized buffer (copied to vidbuffer before being rendered to texture)
 	if (vid.bpp == 1)
 	{
-		bufSurface = SDL_CreateRGBSurfaceFrom(screens[0],vid.width,vid.height,8,
+		bufSurface = SDL_CreateRGBSurfaceFrom(screens[SCREEN_MAIN],vid.width,vid.height,8,
 			(int)vid.rowbytes,0x00000000,0x00000000,0x00000000,0x00000000); // 256 mode
 	}
-	else if (vid.bpp == 2) // Fury -- don't think this is used at all anymore
+	else if (vid.bpp == 2)
 	{
-		bufSurface = SDL_CreateRGBSurfaceFrom(screens[0],vid.width,vid.height,15,
+		bufSurface = SDL_CreateRGBSurfaceFrom(screens[SCREEN_MAIN],vid.width,vid.height,15,
 			(int)vid.rowbytes,0x00007C00,0x000003E0,0x0000001F,0x00000000); // 555 mode
 	}
 	if (bufSurface)
@@ -1399,7 +1391,7 @@ void I_StartupGraphics(void)
 	COM_AddCommand ("vid_modelist", VID_Command_ModeList_f);
 	COM_AddCommand ("vid_mode", VID_Command_Mode_f);
 	CV_RegisterVar (&cv_vidwait);
-	CV_RegisterVar (&cv_stretch);
+	CV_RegisterVar (&cv_resizeview);
 	disable_mouse = M_CheckParm("-nomouse");
 	disable_fullscreen = M_CheckParm("-win") ? 1 : 0;
 

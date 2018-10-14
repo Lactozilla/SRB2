@@ -31,8 +31,7 @@ extern UINT8 *topleft;
 
 extern lighttable_t *dc_colormap;
 extern INT32 dc_x, dc_yl, dc_yh;
-extern fixed_t dc_iscale, dc_texturemid;
-extern UINT8 dc_hires;
+extern fixed_t dc_topstep, dc_iscale, dc_texturemid;
 
 extern UINT8 *dc_source; // first pixel in a column
 
@@ -57,7 +56,14 @@ extern INT32 dc_texheight;
 extern INT32 ds_y, ds_x1, ds_x2;
 extern lighttable_t *ds_colormap;
 extern fixed_t ds_xfrac, ds_yfrac, ds_xstep, ds_ystep;
-extern UINT8 *ds_source; // start of a 64*64 tile image
+
+/// JimitaMPC
+#ifndef NOWATER
+extern INT32 ds_waterofs;
+extern INT32 ds_bgofs;
+#endif // NOWATER
+
+extern UINT8 *ds_source;
 extern UINT8 *ds_transmap;
 
 #ifdef ESLOPE
@@ -65,7 +71,6 @@ typedef struct {
 	float x, y, z;
 } floatv3_t;
 
-extern pslope_t *ds_slope; // Current slope being used
 extern floatv3_t ds_su, ds_sv, ds_sz; // Vectors for... stuff?
 extern float focallengthf, zeroheight;
 #endif
@@ -75,29 +80,6 @@ extern UINT32 nflatxshift;
 extern UINT32 nflatyshift;
 extern UINT32 nflatshiftup;
 extern UINT32 nflatmask;
-
-/// \brief Top border
-#define BRDR_T 0
-/// \brief Bottom border
-#define BRDR_B 1
-/// \brief Left border
-#define BRDR_L 2
-/// \brief Right border
-#define BRDR_R 3
-/// \brief Topleft border
-#define BRDR_TL 4
-/// \brief Topright border
-#define BRDR_TR 5
-/// \brief Bottomleft border
-#define BRDR_BL 6
-/// \brief Bottomright border
-#define BRDR_BR 7
-
-extern lumpnum_t viewborderlump[8];
-
-// ------------------------------------------------
-// r_draw.c COMMON ROUTINES FOR BOTH 8bpp and 16bpp
-// ------------------------------------------------
 
 #define GTC_CACHE 1
 
@@ -114,68 +96,59 @@ UINT8 R_GetColorByName(const char *name);
 
 // Custom player skin translation
 void R_InitViewBuffer(INT32 width, INT32 height);
-void R_InitViewBorder(void);
-void R_VideoErase(size_t ofs, INT32 count);
-
-// Rendering function.
-#if 0
-void R_FillBackScreen(void);
-
-// If the view size is not full screen, draws a border around it.
-void R_DrawViewBorder(void);
-#endif
+void R_VideoCopy(size_t ofs, INT32 count);
 
 // -----------------
-// 8bpp DRAWING CODE
+// DRAWING CODE
 // -----------------
+
+/** Columns **/
 
 void R_DrawColumn_8(void);
-#define R_DrawWallColumn_8	R_DrawColumn_8
-void R_DrawShadeColumn_8(void);
+#define R_DrawWallColumn_8	R_DrawColumn_8		/// Macro
+
+void R_DrawTranslatedColumn_8(void);
 void R_DrawTranslucentColumn_8(void);
+void R_DrawTranslatedTranslucentColumn_8(void);
+
+void R_DrawFogSpan_8(void);
+void R_DrawFogColumn_8(void);
+void R_DrawColumnShadowed_8(void);
+
+void R_Draw2sMultiPatchColumn_8(void);
 
 #ifdef USEASM
+/// ASM
 void ASMCALL R_DrawColumn_8_ASM(void);
-#define R_DrawWallColumn_8_ASM	R_DrawColumn_8_ASM
-void ASMCALL R_DrawShadeColumn_8_ASM(void);
-void ASMCALL R_DrawTranslucentColumn_8_ASM(void);
+#define R_DrawWallColumn_8_ASM	R_DrawColumn_8_ASM		/// Macro
 void ASMCALL R_Draw2sMultiPatchColumn_8_ASM(void);
 
+/// MMX
 void ASMCALL R_DrawColumn_8_MMX(void);
-#define R_DrawWallColumn_8_MMX	R_DrawColumn_8_MMX
+#define R_DrawWallColumn_8_MMX	R_DrawColumn_8_MMX		/// Macro
 
 void ASMCALL R_Draw2sMultiPatchColumn_8_MMX(void);
 void ASMCALL R_DrawSpan_8_MMX(void);
 #endif
 
-void R_DrawTranslatedColumn_8(void);
-void R_DrawTranslatedTranslucentColumn_8(void);
+/** Spans **/
+
 void R_DrawSpan_8(void);
+void R_DrawTranslucentSpan_8(void);
+
+#ifndef NOWATER
+void R_DrawTranslucentWaterSpan_8(void);
+#endif
+
 #ifdef ESLOPE
 void R_CalcTiltedLighting(fixed_t start, fixed_t end);
 void R_DrawTiltedSpan_8(void);
 void R_DrawTiltedTranslucentSpan_8(void);
 void R_DrawTiltedSplat_8(void);
 #endif
+
 void R_DrawSplat_8(void);
 void R_DrawTranslucentSplat_8(void);
-void R_DrawTranslucentSpan_8(void);
-void R_Draw2sMultiPatchColumn_8(void);
-void R_DrawFogSpan_8(void);
-void R_DrawFogColumn_8(void);
-void R_DrawColumnShadowed_8(void);
-
-// ------------------
-// 16bpp DRAWING CODE
-// ------------------
-
-#ifdef HIGHCOLOR
-void R_DrawColumn_16(void);
-void R_DrawWallColumn_16(void);
-void R_DrawTranslucentColumn_16(void);
-void R_DrawTranslatedColumn_16(void);
-void R_DrawSpan_16(void);
-#endif
 
 // =========================================================================
 #endif  // __R_DRAW__

@@ -989,7 +989,7 @@ static inline void *W_CachePatchNumPwad(UINT16 wad, UINT16 lump, INT32 tag)
 {
 	GLPatch_t *grPatch;
 
-	if (rendermode == render_soft || rendermode == render_none)
+	if (rendermode != render_opengl)
 		return W_CacheLumpNumPwad(wad, lump, tag);
 
 	if (!TestValidLump(wad, lump))

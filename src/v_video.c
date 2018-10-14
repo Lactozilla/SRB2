@@ -31,12 +31,7 @@
 #endif
 
 // Each screen is [vid.width*vid.height];
-UINT8 *screens[5];
-// screens[0] = main display window
-// screens[1] = back screen, alternative blitting
-// screens[2] = screenshot buffer, gif movie buffer
-// screens[3] = fade screen start
-// screens[4] = fade screen end, postimage tempoarary buffer
+UINT8 *screens[NUMSCREENS];
 
 static CV_PossibleValue_t gamma_cons_t[] = {{0, "MIN"}, {4, "MAX"}, {0, NULL}};
 static void CV_usegamma_OnChange(void);
@@ -168,7 +163,8 @@ const UINT8 gammatable[5][256] =
 };
 
 // local copy of the palette for V_GetColor()
-RGBA_t *pLocalPalette = NULL;
+RGBA_t *pLocalPalette     = NULL;
+RGBA_t *pLocalPaletteReal = NULL;	/// JimitaMPC
 
 // keep a copy of the palette so that we can get the RGB value for a color index at any time.
 static void LoadPalette(const char *lumpname)
@@ -179,16 +175,27 @@ static void LoadPalette(const char *lumpname)
 	UINT8 *pal;
 
 	Z_Free(pLocalPalette);
+	Z_Free(pLocalPaletteReal);
 
-	pLocalPalette = Z_Malloc(sizeof (*pLocalPalette)*palsize, PU_STATIC, NULL);
+	pLocalPalette     = Z_Malloc(sizeof (*pLocalPalette)    *palsize, PU_STATIC, NULL);
+	pLocalPaletteReal = Z_Malloc(sizeof (*pLocalPaletteReal)*palsize, PU_STATIC, NULL);
 
 	pal = W_CacheLumpNum(lumpnum, PU_CACHE);
 	for (i = 0; i < palsize; i++)
 	{
-		pLocalPalette[i].s.red = usegamma[*pal++];
+		pLocalPalette[i].s.red   = usegamma[*pal++];
 		pLocalPalette[i].s.green = usegamma[*pal++];
-		pLocalPalette[i].s.blue = usegamma[*pal++];
+		pLocalPalette[i].s.blue  = usegamma[*pal++];
 		pLocalPalette[i].s.alpha = 0xFF;
+	}
+	/// JimitaMPC
+	pal = W_CacheLumpNum(lumpnum, PU_CACHE);
+	for (i = 0; i < palsize; i++)
+	{
+		pLocalPaletteReal[i].s.red   = *pal++;
+		pLocalPaletteReal[i].s.green = *pal++;
+		pLocalPaletteReal[i].s.blue  = *pal++;
+		pLocalPaletteReal[i].s.alpha = 0xFF;
 	}
 }
 
@@ -778,7 +785,7 @@ void V_DrawFill(INT32 x, INT32 y, INT32 w, INT32 h, INT32 c)
 
 		if (x == 0 && y == 0 && w == BASEVIDWIDTH && h == BASEVIDHEIGHT)
 		{ // Clear the entire screen, from dest to deststop. Yes, this really works.
-			memset(screens[0], (c&255), vid.width * vid.height * vid.bpp);
+			memset(screens[SCREEN_MAIN], (c&255), vid.width * vid.height * vid.bpp);
 			return;
 		}
 
@@ -827,8 +834,8 @@ void V_DrawFill(INT32 x, INT32 y, INT32 w, INT32 h, INT32 c)
 	if (y + h > vid.height)
 		h = vid.height - y;
 
-	dest = screens[0] + y*vid.width + x;
-	deststop = screens[0] + vid.rowbytes * vid.height;
+	dest = screens[SCREEN_MAIN] + y*vid.width + x;
+	deststop = screens[SCREEN_MAIN] + vid.rowbytes * vid.height;
 
 	c &= 255;
 
@@ -893,8 +900,8 @@ void V_DrawFlatFill(INT32 x, INT32 y, INT32 w, INT32 h, lumpnum_t flatnum)
 
 	dupx = dupy = (vid.dupx < vid.dupy ? vid.dupx : vid.dupy);
 
-	dest = screens[0] + y*dupy*vid.width + x*dupx;
-	deststop = screens[0] + vid.rowbytes * vid.height;
+	dest = screens[SCREEN_MAIN] + y*dupy*vid.width + x*dupx;
+	deststop = screens[SCREEN_MAIN] + vid.rowbytes * vid.height;
 
 	// from V_DrawScaledPatch
 	if (vid.width != BASEVIDWIDTH * dupx)
@@ -953,8 +960,8 @@ void V_DrawPatchFill(patch_t *pat)
 void V_DrawFadeScreen(void)
 {
 	const UINT8 *fadetable = (UINT8 *)colormaps + 16*256;
-	const UINT8 *deststop = screens[0] + vid.rowbytes * vid.height;
-	UINT8 *buf = screens[0];
+	const UINT8 *deststop = screens[SCREEN_MAIN] + vid.rowbytes * vid.height;
+	UINT8 *buf = screens[SCREEN_MAIN];
 
 #ifdef HWRENDER
 	if (rendermode != render_soft && rendermode != render_none)
@@ -1000,8 +1007,8 @@ void V_DrawFadeConsBack(INT32 plines)
 
 	// heavily simplified -- we don't need to know x or y position,
 	// just the stop position
-	deststop = screens[0] + vid.rowbytes * min(plines, vid.height);
-	for (buf = screens[0]; buf < deststop; ++buf)
+	deststop = screens[SCREEN_MAIN] + vid.rowbytes * min(plines, vid.height);
+	for (buf = screens[SCREEN_MAIN]; buf < deststop; ++buf)
 		*buf = consolebgmap[*buf];
 }
 
@@ -1886,7 +1893,7 @@ INT32 heatindex[2] = { 0, 0 };
 #include "p_local.h"
 void V_DoPostProcessor(INT32 view, postimg_t type, INT32 param)
 {
-#if NUMSCREENS < 5
+#if NUMSCREENS < 6
 	// do not enable image post processing for ARM, SH and MIPS CPUs
 	(void)view;
 	(void)type;
@@ -1915,8 +1922,8 @@ void V_DoPostProcessor(INT32 view, postimg_t type, INT32 param)
 
 	if (type == postimg_water)
 	{
-		UINT8 *tmpscr = screens[4];
-		UINT8 *srcscr = screens[0];
+		UINT8 *tmpscr = screens[SCREEN_POSTIMAGE];
+		UINT8 *srcscr = screens[SCREEN_MAIN];
 		INT32 y;
 		angle_t disStart = (leveltime * 128) & FINEMASK; // in 0 to FINEANGLE
 		INT32 newpix;
@@ -1968,13 +1975,13 @@ Unoptimized version
 			disStart &= FINEMASK; //clip it to FINEMASK
 		}
 
-		VID_BlitLinearScreen(tmpscr+vid.width*vid.bpp*yoffset, screens[0]+vid.width*vid.bpp*yoffset,
+		VID_BlitLinearScreen(tmpscr+vid.width*vid.bpp*yoffset, screens[SCREEN_MAIN]+vid.width*vid.bpp*yoffset,
 				vid.width*vid.bpp, height, vid.width*vid.bpp, vid.width);
 	}
 	else if (type == postimg_motion) // Motion Blur!
 	{
-		UINT8 *tmpscr = screens[4];
-		UINT8 *srcscr = screens[0];
+		UINT8 *tmpscr = screens[SCREEN_POSTIMAGE];
+		UINT8 *srcscr = screens[SCREEN_MAIN];
 		INT32 x, y;
 
 		// TODO: Add a postimg_param so that we can pick the translucency level...
@@ -1988,25 +1995,25 @@ Unoptimized version
 					=     colormaps[*(transme     + (srcscr   [y*vid.width+x ] <<8) + (tmpscr[y*vid.width+x]))];
 			}
 		}
-		VID_BlitLinearScreen(tmpscr+vid.width*vid.bpp*yoffset, screens[0]+vid.width*vid.bpp*yoffset,
+		VID_BlitLinearScreen(tmpscr+vid.width*vid.bpp*yoffset, screens[SCREEN_MAIN]+vid.width*vid.bpp*yoffset,
 				vid.width*vid.bpp, height, vid.width*vid.bpp, vid.width);
 	}
 	else if (type == postimg_flip) // Flip the screen upside-down
 	{
-		UINT8 *tmpscr = screens[4];
-		UINT8 *srcscr = screens[0];
+		UINT8 *tmpscr = screens[SCREEN_POSTIMAGE];
+		UINT8 *srcscr = screens[SCREEN_MAIN];
 		INT32 y, y2;
 
 		for (y = yoffset, y2 = yoffset+height - 1; y < yoffset+height; y++, y2--)
 			M_Memcpy(&tmpscr[y2*vid.width], &srcscr[y*vid.width], vid.width);
 
-		VID_BlitLinearScreen(tmpscr+vid.width*vid.bpp*yoffset, screens[0]+vid.width*vid.bpp*yoffset,
+		VID_BlitLinearScreen(tmpscr+vid.width*vid.bpp*yoffset, screens[SCREEN_MAIN]+vid.width*vid.bpp*yoffset,
 				vid.width*vid.bpp, height, vid.width*vid.bpp, vid.width);
 	}
 	else if (type == postimg_heat) // Heat wave
 	{
-		UINT8 *tmpscr = screens[4];
-		UINT8 *srcscr = screens[0];
+		UINT8 *tmpscr = screens[SCREEN_POSTIMAGE];
+		UINT8 *srcscr = screens[SCREEN_MAIN];
 		INT32 y;
 
 		// Make sure table is built
@@ -2044,7 +2051,7 @@ Unoptimized version
 		heatindex[view]++;
 		heatindex[view] %= vid.height;
 
-		VID_BlitLinearScreen(tmpscr+vid.width*vid.bpp*yoffset, screens[0]+vid.width*vid.bpp*yoffset,
+		VID_BlitLinearScreen(tmpscr+vid.width*vid.bpp*yoffset, screens[SCREEN_MAIN]+vid.width*vid.bpp*yoffset,
 				vid.width*vid.bpp, height, vid.width*vid.bpp, vid.width);
 	}
 #endif
@@ -2077,7 +2084,7 @@ void V_Init(void)
 	}
 
 	if (vid.direct)
-		screens[0] = vid.direct;
+		screens[SCREEN_MAIN] = vid.direct;
 
 #ifdef DEBUG
 	CONS_Debug(DBG_RENDER, "V_Init done:\n");

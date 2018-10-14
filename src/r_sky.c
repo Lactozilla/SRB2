@@ -66,7 +66,7 @@ void R_SetupSkyDraw(void)
 
 	// get the right drawer, it was set by screen.c, depending on the
 	// current video mode bytes per pixel (quick fix)
-	wallcolfunc = walldrawerfunc;
+	wallcolfunc = basewallcolfunc;
 
 	R_SetSkyScale();
 }

@@ -61,7 +61,6 @@ cextern dc_iscale
 cextern dc_texturemid
 cextern dc_texheight
 cextern dc_source
-cextern dc_hires
 cextern centery
 cextern centeryfrac
 cextern dc_transmap
@@ -179,17 +178,8 @@ R_DrawColumn_8_MMX:
 		add			eax, [dc_texturemid]
 
 ;;
-;; if (dc_hires) frac = 0;
-;;
-		test		byte [dc_hires], 0x01
-		jz			.mod2
-		xor			eax, eax
-
-
-;;
 ;; Do mod-2 pixel.
 ;;
-.mod2:
 		test		ecx, 1
 		jz			.pairprepare
 		mov			edx, eax				;; edx = frac
@@ -347,17 +337,8 @@ R_Draw2sMultiPatchColumn_8_MMX:
 		add			eax, [dc_texturemid]
 
 ;;
-;; if (dc_hires) frac = 0;
-;;
-		test		byte [dc_hires], 0x01
-		jz			.mod2
-		xor			eax, eax
-
-
-;;
 ;; Do mod-2 pixel.
 ;;
-.mod2:
 		test		ecx, 1
 		jz			.pairprepare
 		mov			edx, eax				;; edx = frac

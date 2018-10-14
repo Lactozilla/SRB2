@@ -22,12 +22,6 @@
 
 #define MAXLEVELSPLATS      1024
 
-// splat flags
-#define SPLATDRAWMODE_MASK 0x03 // mask to get drawmode from flags
-#define SPLATDRAWMODE_OPAQUE 0x00
-#define SPLATDRAWMODE_SHADE 0x01
-#define SPLATDRAWMODE_TRANS 0x02
-
 // ==========================================================================
 // DEFINITIONS
 // ==========================================================================

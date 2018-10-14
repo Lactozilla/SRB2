@@ -103,7 +103,7 @@ extern UINT8 window_notinfocus; // are we in focus? (backend independant -- hand
 
 extern boolean nodrawers;
 extern boolean noblit;
-extern boolean lastdraw;
+extern UINT8 lastdraw;
 extern postimg_t postimgtype;
 extern INT32 postimgparam;
 extern postimg_t postimgtype2;

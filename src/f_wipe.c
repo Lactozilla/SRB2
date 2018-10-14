@@ -181,7 +181,7 @@ static void F_DoWipe(fademask_t *fademask)
 	// screen, of which there are hundreds of thousands -- if not millions -- of.
 	// This worked fine for smaller screen sizes, but with excessively large
 	// (1920x1200) screens that meant 4 million+ calls out to FixedMul, and that
-	// would take /just/ long enough that fades would start to noticably lag.
+	// would take /just/ long enough that fades would start to noticeably lag.
 	// ---
 	// This code iterates over the fade mask's pixels instead of the screen's,
 	// and deals with drawing over each rectangular area before it moves on to
@@ -301,7 +301,7 @@ void F_WipeStartScreen(void)
 		return;
 	}
 #endif
-	wipe_scr_start = screens[3];
+	wipe_scr_start = screens[SCREEN_FADESTART];
 	I_ReadScreen(wipe_scr_start);
 #endif
 }
@@ -318,7 +318,7 @@ void F_WipeEndScreen(void)
 		return;
 	}
 #endif
-	wipe_scr_end = screens[4];
+	wipe_scr_end = screens[SCREEN_FADEEND];
 	I_ReadScreen(wipe_scr_end);
 	V_DrawBlock(0, 0, 0, vid.width, vid.height, wipe_scr_start);
 #endif
@@ -341,7 +341,7 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 
 	// Init the wipe
 	WipeInAction = true;
-	wipe_scr = screens[0];
+	wipe_scr = screens[SCREEN_MAIN];
 
 	// lastwipetic should either be 0 or the tic we last wiped
 	// on for fade-to-black

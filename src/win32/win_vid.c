@@ -27,6 +27,7 @@
 #include "../i_system.h"
 #include "../m_argv.h"
 #include "../v_video.h"
+#include "../r_local.h"
 #include "../st_stuff.h"
 #include "../i_video.h"
 #include "../z_zone.h"
@@ -398,13 +399,13 @@ void I_FinishUpdate(void)
 				size_t half_excess = ScreenPitch*(ScreenHeight-vid.height)/2;
 				memset(ptr, 0x1F, half_excess);
 				ptr += half_excess;
-				VID_BlitLinearScreen(screens[0], ptr, vid.width*vid.bpp, vid.height,
+				VID_BlitLinearScreen(screens[SCREEN_MAIN], ptr, vid.width*vid.bpp, vid.height,
 					vid.width*vid.bpp, ScreenPitch);
 				ptr += vid.height*ScreenPitch;
 				memset(ptr, 0x1F, half_excess);
 			}
 			else
-				VID_BlitLinearScreen(screens[0], (UINT8 *)ScreenPtr, vid.width*vid.bpp, vid.height,
+				VID_BlitLinearScreen(screens[SCREEN_MAIN], (UINT8 *)ScreenPtr, vid.width*vid.bpp, vid.height,
 					vid.width*vid.bpp, ScreenPitch);
 
 			UnlockScreen();

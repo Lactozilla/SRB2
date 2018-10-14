@@ -56,9 +56,6 @@ extern INT32 *texturewidthmask;
 
 extern fixed_t *textureheight; // needed for texture pegging
 
-extern INT16 color8to16[256]; // remap color index to highcolor
-extern INT16 *hicolormaps; // remap high colors to high colors..
-
 extern CV_PossibleValue_t Color_cons_t[];
 
 // Load TEXTURE1/TEXTURE2/PNAMES definitions, create lookup tables
@@ -93,8 +90,6 @@ void R_ReInitColormaps(UINT16 num);
 void R_ClearColormaps(void);
 INT32 R_ColormapNumForName(char *name);
 INT32 R_CreateColormap(char *p1, char *p2, char *p3);
-void R_CreateColormap2(char *p1, char *p2, char *p3);
-void R_MakeColormaps(void);
 const char *R_ColormapNameForNum(INT32 num);
 
 extern INT32 numtextures;

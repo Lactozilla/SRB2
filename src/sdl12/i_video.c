@@ -95,6 +95,7 @@
 #include "../m_argv.h"
 #include "../m_menu.h"
 #include "../d_main.h"
+#include "../r_local.h"
 #include "../s_sound.h"
 #include "../i_sound.h"  // midi pause/unpause
 #include "../i_joy.h"
@@ -152,7 +153,6 @@ consvar_t cv_vidwait = {"vid_wait", "Off", CV_SAVE, CV_OnOff, NULL, 0, NULL, NUL
 #else
 consvar_t cv_vidwait = {"vid_wait", "On", CV_SAVE, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
 #endif
-static consvar_t cv_stretch = {"stretch", "Off", CV_SAVE|CV_NOSHOWHELP, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
 
 UINT8 graphics_started = 0; // Is used in console.c and screen.c
 
@@ -1835,10 +1835,6 @@ INT32 VID_SetMode(INT32 modeNum)
 		else I_Error ("Not enough memory for video buffer\n");
 	}
 
-#if 0 // broken
-	if (!cv_stretch.value && (float)vid.width/vid.height != ((float)BASEVIDWIDTH/BASEVIDHEIGHT))
-		vid.height = (INT32)(vid.width * ((float)BASEVIDHEIGHT/BASEVIDWIDTH));// Adjust the height to match
-#endif
 #endif
 	I_StartupMouse();
 
@@ -1865,7 +1861,6 @@ void I_StartupGraphics(void)
 	COM_AddCommand ("vid_modelist", VID_Command_ModeList_f);
 	COM_AddCommand ("vid_mode", VID_Command_Mode_f);
 	CV_RegisterVar (&cv_vidwait);
-	CV_RegisterVar (&cv_stretch);
 #ifdef FILTERS
 	CV_RegisterVar (&cv_filter);
 #endif

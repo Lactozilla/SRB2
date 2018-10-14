@@ -170,8 +170,8 @@ static void F_DrawPatchCol(INT32 x, patch_t *patch, INT32 col)
 	const UINT8 *deststop, *destbottom;
 	size_t count;
 
-	desttop = screens[0] + x*vid.dupx;
-	deststop = screens[0] + vid.rowbytes * vid.height;
+	desttop = screens[SCREEN_MAIN] + x*vid.dupx;
+	deststop = screens[SCREEN_MAIN] + vid.rowbytes * vid.height;
 	destbottom = desttop + vid.height*vid.width;
 
 	do {

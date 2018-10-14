@@ -37,6 +37,16 @@ unsigned SlopeDiv(unsigned num, unsigned den)
 	return ans <= SLOPERANGE ? ans : SLOPERANGE;
 }
 
+/// JimitaMPC
+UINT64 SlopeDivEx(unsigned int num, unsigned int den)
+{
+	UINT64 ans;
+	if (den < 512)
+		return SLOPERANGE;
+	ans = ((UINT64)num<<3)/(den>>8);
+	return ans <= SLOPERANGE ? (int)ans : SLOPERANGE;
+}
+
 fixed_t AngleFixed(angle_t af)
 {
 	angle_t wa = ANGLE_180;
