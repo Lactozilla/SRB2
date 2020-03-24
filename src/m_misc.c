@@ -556,7 +556,7 @@ void M_SaveConfig(const char *filename)
 		// append srb2home to beginning of filename
 		// but check if srb2home isn't already there, first
 		if (!strstr(filename, srb2home))
-			filepath = va(pandf,srb2home, filename);
+			filepath = va(pandf, srb2home, filename);
 		else
 			filepath = Z_StrDup(filename);
 

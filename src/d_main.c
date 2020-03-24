@@ -1119,7 +1119,11 @@ void D_SRB2Main(void)
 		{
 			// use user specific config file
 #ifdef DEFAULTDIR
+#ifdef __ANDROID__
+			snprintf(srb2home, sizeof srb2home, "%s", userhome);
+#else
 			snprintf(srb2home, sizeof srb2home, "%s" PATHSEP DEFAULTDIR, userhome);
+#endif
 			snprintf(downloaddir, sizeof downloaddir, "%s" PATHSEP "DOWNLOAD", srb2home);
 			if (dedicated)
 				snprintf(configfile, sizeof configfile, "%s" PATHSEP "d"CONFIGFILENAME, srb2home);
