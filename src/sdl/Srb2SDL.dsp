@@ -732,6 +732,14 @@ SOURCE=..\m_swap.h
 # End Source File
 # Begin Source File
 
+SOURCE=..\interpolation.c
+# End Source File
+# Begin Source File
+
+SOURCE=..\interpolation.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\string.c
 # End Source File
 # End Group

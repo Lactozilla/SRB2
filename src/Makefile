@@ -489,6 +489,7 @@ OBJS:=$(i_main_o) \
 		$(OBJDIR)/m_random.o \
 		$(OBJDIR)/m_queue.o  \
 		$(OBJDIR)/info.o     \
+		$(OBJDIR)/interpolation.o\
 		$(OBJDIR)/p_ceilng.o \
 		$(OBJDIR)/p_enemy.o  \
 		$(OBJDIR)/p_floor.o  \

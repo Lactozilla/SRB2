@@ -357,6 +357,9 @@
     <ClInclude Include="..\m_swap.h">
       <Filter>M_Misc</Filter>
     </ClInclude>
+    <ClInclude Include="..\interpolation.h">
+      <Filter>M_Misc</Filter>
+    </ClInclude>
     <ClInclude Include="..\comptime.h">
       <Filter>O_Other</Filter>
     </ClInclude>
@@ -766,6 +769,9 @@
       <Filter>M_Misc</Filter>
     </ClCompile>
     <ClCompile Include="..\m_random.c">
+      <Filter>M_Misc</Filter>
+    </ClCompile>
+	<ClCompile Include="..\interpolation.c">
       <Filter>M_Misc</Filter>
     </ClCompile>
     <ClCompile Include="..\string.c">

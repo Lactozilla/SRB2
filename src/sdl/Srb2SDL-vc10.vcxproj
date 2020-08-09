@@ -236,6 +236,7 @@
     <ClInclude Include="..\hardware\u_list.h" />
     <ClInclude Include="..\hu_stuff.h" />
     <ClInclude Include="..\info.h" />
+    <ClInclude Include="..\interpolation.h" />
     <ClInclude Include="..\i_addrinfo.h" />
     <ClInclude Include="..\i_joy.h" />
     <ClInclude Include="..\i_net.h" />
@@ -387,6 +388,7 @@
     <ClCompile Include="..\hardware\u_list.c" />
     <ClCompile Include="..\hu_stuff.c" />
     <ClCompile Include="..\info.c" />
+    <ClCompile Include="..\interpolation.c" />
     <ClCompile Include="..\i_addrinfo.c">
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </ClCompile>
