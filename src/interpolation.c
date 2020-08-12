@@ -206,15 +206,20 @@ INTERPFUNC(EaseOutBack)
 	return DoInterp(start, end, x);
 }
 
-INTERPFUNC(EaseInOutBack)
+static fixed_t DoEaseInOutBack(fixed_t start, fixed_t end, fixed_t t, float c1, float c2)
 {
-	const float c1 = EASEBACKCONST1;
-	const float c2 = c1 * EASEBACKCONST2;
 	float f = FixedToFloat(t);
 	float x = f < 0.5
 	? (pow(2 * f, 2) * ((c2 + 1) * 2 * f - c2)) / 2
 	: (pow(2 * f - 2, 2) * ((c2 + 1) * (f * 2 - 2) + c2) + 2) / 2;
 	return DoInterp(start, end, FloatToFixed(x));
+}
+
+INTERPFUNC(EaseInOutBack)
+{
+	const float c1 = EASEBACKCONST1;
+	const float c2 = c1 * EASEBACKCONST2;
+	return DoEaseInOutBack(start, end, t, c1, c2);
 }
 
 #undef INTERPFUNC
