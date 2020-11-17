@@ -447,6 +447,9 @@
     <ClCompile Include="..\r_draw8.c">
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="..\r_draw8_rotated.c">
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="..\r_draw8_npo2.c">
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </ClCompile>

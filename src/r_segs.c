@@ -102,9 +102,9 @@ static void R_Render2sidedMultiPatchColumn(column_t *column)
 		dc_source = (UINT8 *)column + 3;
 
 		if (colfunc == colfuncs[BASEDRAWFUNC])
-			(colfuncs[COLDRAWFUNC_TWOSMULTIPATCH])();
-		else if (colfunc == colfuncs[COLDRAWFUNC_FUZZY])
-			(colfuncs[COLDRAWFUNC_TWOSMULTIPATCHTRANS])();
+			(colfuncs[COLUMN_MULTIPATCH])();
+		else if (colfunc == colfuncs[COLUMN_TRANSLUCENT])
+			(colfuncs[COLUMN_MULTIPATCHTRANS])();
 		else
 			colfunc();
 	}
@@ -148,12 +148,12 @@ void R_RenderMaskedSegRange(drawseg_t *ds, INT32 x1, INT32 x2)
 	if (ldef->alpha > 0 && ldef->alpha < FRACUNIT)
 	{
 		dc_transmap = R_GetTranslucencyTable(R_GetLinedefTransTable(ldef->alpha));
-		colfunc = colfuncs[COLDRAWFUNC_FUZZY];
+		colfunc = colfuncs[COLUMN_TRANSLUCENT];
 
 	}
 	else if (ldef->special == 909)
 	{
-		colfunc = colfuncs[COLDRAWFUNC_FOG];
+		colfunc = colfuncs[COLUMN_FOG];
 		windowtop = frontsector->ceilingheight;
 		windowbottom = frontsector->floorheight;
 	}
@@ -166,7 +166,7 @@ void R_RenderMaskedSegRange(drawseg_t *ds, INT32 x1, INT32 x2)
 			return;
 
 		dc_transmap = R_GetTranslucencyTable(curline->polyseg->translucency);
-		colfunc = colfuncs[COLDRAWFUNC_FUZZY];
+		colfunc = colfuncs[COLUMN_TRANSLUCENT];
 	}
 
 	range = max(ds->x2-ds->x1, 1);
@@ -226,7 +226,7 @@ void R_RenderMaskedSegRange(drawseg_t *ds, INT32 x1, INT32 x2)
 			rlight->extra_colormap = *light->extra_colormap;
 			rlight->flags = light->flags;
 
-			if ((colfunc != colfuncs[COLDRAWFUNC_FUZZY])
+			if ((colfunc != colfuncs[COLUMN_TRANSLUCENT])
 				|| (rlight->flags & FF_FOG)
 				|| (rlight->extra_colormap && (rlight->extra_colormap->flags & CMF_FOG)))
 				lightnum = (rlight->lightlevel >> LIGHTSEGSHIFT);
@@ -245,13 +245,13 @@ void R_RenderMaskedSegRange(drawseg_t *ds, INT32 x1, INT32 x2)
 	}
 	else
 	{
-		if ((colfunc != colfuncs[COLDRAWFUNC_FUZZY])
+		if ((colfunc != colfuncs[COLUMN_TRANSLUCENT])
 			|| (frontsector->extra_colormap && (frontsector->extra_colormap->flags & CMF_FOG)))
 			lightnum = (frontsector->lightlevel >> LIGHTSEGSHIFT);
 		else
 			lightnum = LIGHTLEVELS - 1;
 
-		if (colfunc == colfuncs[COLDRAWFUNC_FOG]
+		if (colfunc == colfuncs[COLUMN_FOG]
 			|| (frontsector->extra_colormap && (frontsector->extra_colormap->flags & CMF_FOG)))
 			;
 		else if (curline->v1->y == curline->v2->y)
@@ -601,10 +601,10 @@ void R_RenderThickSideRange(drawseg_t *ds, INT32 x1, INT32 x2, ffloor_t *pfloor)
 			fuzzy = false; // Opaque
 
 		if (fuzzy)
-			colfunc = colfuncs[COLDRAWFUNC_FUZZY];
+			colfunc = colfuncs[COLUMN_TRANSLUCENT];
 	}
 	else if (pfloor->flags & FF_FOG)
-		colfunc = colfuncs[COLDRAWFUNC_FOG];
+		colfunc = colfuncs[COLUMN_FOG];
 
 	range = max(ds->x2-ds->x1, 1);
 	//SoM: Moved these up here so they are available for my lightlist calculations
@@ -714,7 +714,7 @@ void R_RenderThickSideRange(drawseg_t *ds, INT32 x1, INT32 x2, ffloor_t *pfloor)
 			lightnum = (frontsector->lightlevel >> LIGHTSEGSHIFT);
 		else if (pfloor->flags & FF_FOG)
 			lightnum = (pfloor->master->frontsector->lightlevel >> LIGHTSEGSHIFT);
-		else if (colfunc == colfuncs[COLDRAWFUNC_FUZZY])
+		else if (colfunc == colfuncs[COLUMN_TRANSLUCENT])
 			lightnum = LIGHTLEVELS-1;
 		else
 			lightnum = R_FakeFlat(frontsector, &tempsec, &templight, &templight, false)
@@ -1245,7 +1245,7 @@ static void R_RenderSegLoop (void)
 				else
 					dc_lightlist[i].rcolormap = xwalllights[pindex];
 
-				colfunc = colfuncs[COLDRAWFUNC_SHADOWED];
+				colfunc = colfuncs[COLUMN_SHADOWED];
 			}
 		}
 

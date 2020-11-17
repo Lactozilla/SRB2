@@ -779,11 +779,11 @@ void R_DrawSinglePlane(visplane_t *pl)
 			return; // Don't even draw it
 		else if (pl->polyobj->translucency > 0)
 		{
-			spanfunctype = (pl->polyobj->flags & POF_SPLAT) ? SPANDRAWFUNC_TRANSSPLAT : SPANDRAWFUNC_TRANS;
+			spanfunctype = (pl->polyobj->flags & POF_SPLAT) ? SPAN_TRANSSPLAT : SPAN_TRANSLUCENT;
 			ds_transmap = R_GetTranslucencyTable(pl->polyobj->translucency);
 		}
 		else if (pl->polyobj->flags & POF_SPLAT) // Opaque, but allow transparent flat pixels
-			spanfunctype = SPANDRAWFUNC_SPLAT;
+			spanfunctype = SPAN_SPLAT;
 
 		if (pl->polyobj->translucency == 0 || (pl->extra_colormap && (pl->extra_colormap->flags & CMF_FOG)))
 			light = (pl->lightlevel >> LIGHTSEGSHIFT);
@@ -813,7 +813,7 @@ void R_DrawSinglePlane(visplane_t *pl)
 
 			if (pl->ffloor->flags & FF_TRANSLUCENT)
 			{
-				spanfunctype = (pl->ffloor->master->flags & ML_EFFECT6) ? SPANDRAWFUNC_TRANSSPLAT : SPANDRAWFUNC_TRANS;
+				spanfunctype = (pl->ffloor->master->flags & ML_EFFECT6) ? SPAN_TRANSSPLAT : SPAN_TRANSLUCENT;
 
 				// Hacked up support for alpha value in software mode Tails 09-24-2002
 				if (pl->ffloor->alpha < 12)
@@ -837,16 +837,16 @@ void R_DrawSinglePlane(visplane_t *pl)
 				else if (pl->ffloor->alpha < 243)
 					ds_transmap = R_GetTranslucencyTable(tr_trans10);
 				else // Opaque, but allow transparent flat pixels
-					spanfunctype = SPANDRAWFUNC_SPLAT;
+					spanfunctype = SPAN_SPLAT;
 
-				if ((spanfunctype == SPANDRAWFUNC_SPLAT) || (pl->extra_colormap && (pl->extra_colormap->flags & CMF_FOG)))
+				if ((spanfunctype == SPAN_SPLAT) || (pl->extra_colormap && (pl->extra_colormap->flags & CMF_FOG)))
 					light = (pl->lightlevel >> LIGHTSEGSHIFT);
 				else
 					light = LIGHTLEVELS-1;
 			}
 			else if (pl->ffloor->flags & FF_FOG)
 			{
-				spanfunctype = SPANDRAWFUNC_FOG;
+				spanfunctype = SPAN_FOG;
 				light = (pl->lightlevel >> LIGHTSEGSHIFT);
 			}
 			else light = (pl->lightlevel >> LIGHTSEGSHIFT);
@@ -857,9 +857,9 @@ void R_DrawSinglePlane(visplane_t *pl)
 				INT32 top, bottom;
 
 				itswater = true;
-				if (spanfunctype == SPANDRAWFUNC_TRANS)
+				if (spanfunctype == SPAN_TRANSLUCENT)
 				{
-					spanfunctype = SPANDRAWFUNC_WATER;
+					spanfunctype = SPAN_WATER;
 
 					// Copy the current scene, ugh
 					top = pl->high-8;
@@ -1013,16 +1013,16 @@ void R_DrawSinglePlane(visplane_t *pl)
 			R_SlopePlaneVectors(pl, 0, fudgecanyon);
 
 #ifndef NOWATER
-		if (itswater && (spanfunctype == SPANDRAWFUNC_WATER))
-			spanfunctype = SPANDRAWFUNC_TILTEDWATER;
+		if (itswater && (spanfunctype == SPAN_WATER))
+			spanfunctype = SPAN_TILTEDWATER;
 		else
 #endif
-		if (spanfunctype == SPANDRAWFUNC_TRANS)
-			spanfunctype = SPANDRAWFUNC_TILTEDTRANS;
-		else if (spanfunctype == SPANDRAWFUNC_SPLAT)
-			spanfunctype = SPANDRAWFUNC_TILTEDSPLAT;
+		if (spanfunctype == SPAN_TRANSLUCENT)
+			spanfunctype = SPAN_TILTEDTRANS;
+		else if (spanfunctype == SPAN_SPLAT)
+			spanfunctype = SPAN_TILTEDSPLAT;
 		else
-			spanfunctype = SPANDRAWFUNC_TILTED;
+			spanfunctype = SPAN_TILTED;
 
 		planezlight = scalelight[light];
 	}
@@ -1083,7 +1083,7 @@ using the palette colors.
 	{
 		INT32 i;
 		ds_transmap = R_GetTranslucencyTable(tr_trans50);
-		spanfunc = spanfuncs[SPANDRAWFUNC_TRANS];
+		spanfunc = spanfuncs[SPAN_TRANSLUCENT];
 		for (i=0; i<4; i++)
 		{
 			xoffs = pl->xoffs;

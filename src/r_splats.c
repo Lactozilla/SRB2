@@ -351,7 +351,7 @@ void R_RenderFloorSplat(floorsplat_t *pSplat, vector2_t *verts, vissprite_t *vis
 	angle_t angle, planecos, planesin;
 	fixed_t distance, span;
 
-	int spanfunctype = SPANDRAWFUNC_SPRITE;
+	int spanfunctype = SPAN_SPRITE;
 
 	prepare_rastertab();
 
@@ -427,7 +427,7 @@ void R_RenderFloorSplat(floorsplat_t *pSplat, vector2_t *verts, vissprite_t *vis
 		ds_svp = &ds_sv[0];
 		ds_szp = &ds_sz[0];
 		R_CalculateSlopeVectors(&pSplat->slope, viewx, viewy, viewz, pSplat->xscale, pSplat->yscale, -pSplat->verts[0].x, pSplat->verts[0].y, viewangle, pSplat->angle, 1.0f);
-		spanfunctype = SPANDRAWFUNC_TILTEDSPRITE;
+		spanfunctype = SPAN_TILTEDSPRITE;
 	}
 	else
 	{
@@ -465,9 +465,9 @@ void R_RenderFloorSplat(floorsplat_t *pSplat, vector2_t *verts, vissprite_t *vis
 		ds_transmap = vis->transmap;
 
 		if (pSplat->tilted)
-			spanfunctype = SPANDRAWFUNC_TILTEDTRANSSPRITE;
+			spanfunctype = SPAN_TILTEDTRANSSPRITE;
 		else
-			spanfunctype = SPANDRAWFUNC_TRANSSPRITE;
+			spanfunctype = SPAN_TRANSSPRITE;
 	}
 	else
 		ds_transmap = NULL;

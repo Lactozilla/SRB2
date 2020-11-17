@@ -30,6 +30,8 @@ void *Patch_AllocateHardwarePatch(patch_t *patch);
 void *Patch_CreateGL(patch_t *patch);
 #endif
 
+//#define ROTSPRITE_LEGACY
+
 #ifdef ROTSPRITE
 void Patch_Rotate(patch_t *patch, INT32 angle, INT32 xpivot, INT32 ypivot, boolean flip);
 patch_t *Patch_GetRotated(patch_t *patch, INT32 angle, boolean flip);

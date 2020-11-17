@@ -35,19 +35,26 @@ extern fixed_t dc_iscale, dc_texturemid;
 extern UINT8 dc_hires;
 
 extern UINT8 *dc_source; // first pixel in a column
+extern patch_t *dc_patch;
 
 // translucency stuff here
 extern UINT8 *dc_transmap;
 
 // translation stuff here
-
 extern UINT8 *dc_translation;
 
 extern struct r_lightlist_s *dc_lightlist;
 extern INT32 dc_numlights, dc_maxlights;
 
-//Fix TUTIFRUTI
-extern INT32 dc_texheight;
+extern INT32 dc_texheight; // Tutti-Frutti fix
+
+typedef struct
+{
+	fixed_t x, y;
+	fixed_t xstep, ystep;
+	UINT8 flip;
+} dc_rotation_t;
+extern dc_rotation_t dc_rotation;
 
 // -----------------------
 // SPAN DRAWING CODE STUFF
@@ -167,6 +174,11 @@ void R_Draw2sMultiPatchColumn_8(void);
 void R_Draw2sMultiPatchTranslucentColumn_8(void);
 void R_DrawFogColumn_8(void);
 void R_DrawColumnShadowed_8(void);
+
+void R_DrawRotatedColumn_8(void);
+void R_DrawRotatedTranslucentColumn_8(void);
+void R_DrawRotatedTranslatedTranslucentColumn_8(void);
+void R_DrawRotatedTranslatedColumn_8(void);
 
 #define PLANELIGHTFLOAT (BASEVIDWIDTH * BASEVIDWIDTH / vid.width / (zeroheight - FIXED_TO_FLOAT(viewz)) / 21.0f * FIXED_TO_FLOAT(fovtan))
 

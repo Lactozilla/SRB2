@@ -124,12 +124,13 @@ typedef enum
 	SC_LINKDRAW   = 1<<3,
 	SC_FULLBRIGHT = 1<<4,
 	SC_FULLDARK   = 1<<5,
-	SC_VFLIP      = 1<<6,
-	SC_ISSCALED   = 1<<7,
-	SC_ISROTATED  = 1<<8,
-	SC_SHADOW     = 1<<9,
-	SC_SHEAR      = 1<<10,
-	SC_SPLAT      = 1<<11,
+	SC_HFLIP      = 1<<6,
+	SC_VFLIP      = 1<<7,
+	SC_ISSCALED   = 1<<8,
+	SC_ISROTATED  = 1<<9,
+	SC_SHADOW     = 1<<10,
+	SC_SHEAR      = 1<<11,
+	SC_SPLAT      = 1<<12,
 	// masks
 	SC_CUTMASK    = SC_TOP|SC_BOTTOM,
 	SC_FLAGMASK   = ~SC_CUTMASK
@@ -149,6 +150,7 @@ typedef struct vissprite_s
 	mobj_t *mobj; // for easy access
 
 	INT32 x1, x2;
+	INT32 projx1, projx2; // projected horizontal sprite coordinates before being clipped
 
 	fixed_t gx, gy; // for line side calculation
 	fixed_t gz, gzt; // global bottom/top for silhouette clipping
@@ -163,6 +165,7 @@ typedef struct vissprite_s
 	fixed_t xiscale; // negative if flipped
 
 	angle_t centerangle; // for paper sprites
+	angle_t rollangle; // for rotated sprites
 
 	struct {
 		fixed_t tan; // The amount to shear the sprite vertically per row

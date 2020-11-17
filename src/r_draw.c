@@ -61,13 +61,18 @@ UINT8 *topleft;
 //                      COLUMN DRAWING CODE STUFF
 // =========================================================================
 
-lighttable_t *dc_colormap;
 INT32 dc_x = 0, dc_yl = 0, dc_yh = 0;
 
+INT32 dc_texheight;
+dc_rotation_t dc_rotation;
+
 fixed_t dc_iscale, dc_texturemid;
+UINT8 *dc_source;
+patch_t *dc_patch;
+
+lighttable_t *dc_colormap;
 UINT8 dc_hires; // under MSVC boolean is a byte, while on other systems, it a bit,
                // soo lets make it a byte on all system for the ASM code
-UINT8 *dc_source;
 
 // -----------------------
 // translucency stuff here
@@ -85,13 +90,12 @@ UINT8 *dc_transmap; // one of the translucency tables
 // translation stuff here
 // ----------------------
 
-
 /**	\brief R_DrawTranslatedColumn uses this
 */
 UINT8 *dc_translation;
 
 struct r_lightlist_s *dc_lightlist = NULL;
-INT32 dc_numlights = 0, dc_maxlights, dc_texheight;
+INT32 dc_numlights = 0, dc_maxlights;
 
 // =========================================================================
 //                      SPAN DRAWING CODE STUFF
@@ -762,6 +766,7 @@ void R_DrawViewBorder(void)
 // ==========================================================================
 
 #include "r_draw8.c"
+#include "r_draw8_rotated.c"
 #include "r_draw8_npo2.c"
 
 // ==========================================================================
