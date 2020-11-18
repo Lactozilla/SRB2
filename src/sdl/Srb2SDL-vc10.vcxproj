@@ -266,6 +266,7 @@
     <ClInclude Include="..\m_queue.h" />
     <ClInclude Include="..\m_random.h" />
     <ClInclude Include="..\m_swap.h" />
+    <ClInclude Include="..\m_videoencoder.h" />
     <ClInclude Include="..\p5prof.h" />
     <ClInclude Include="..\p_local.h" />
     <ClInclude Include="..\p_maputl.h" />
@@ -421,6 +422,7 @@
     <ClCompile Include="..\m_misc.c" />
     <ClCompile Include="..\m_perfstats.c" />
     <ClCompile Include="..\m_queue.c" />
+    <ClCompile Include="..\m_videoencoder.c" />
     <ClCompile Include="..\m_random.c" />
     <ClCompile Include="..\p_ceilng.c" />
     <ClCompile Include="..\p_enemy.c" />

@@ -43,6 +43,7 @@
 #include "command.h" // cv_execversion
 
 #include "m_anigif.h"
+#include "m_videoencoder.h"
 
 // So that the screenshot menu auto-updates...
 #include "m_menu.h"
@@ -107,7 +108,19 @@ consvar_t cv_screenshot_folder = CVAR_INIT ("screenshot_folder", "", CV_SAVE, NU
 
 consvar_t cv_screenshot_colorprofile = CVAR_INIT ("screenshot_colorprofile", "Yes", CV_SAVE, CV_YesNo, NULL);
 
-static CV_PossibleValue_t moviemode_cons_t[] = {{MM_GIF, "GIF"}, {MM_APNG, "aPNG"}, {MM_SCREENSHOT, "Screenshots"}, {0, NULL}};
+static CV_PossibleValue_t moviemode_cons_t[] = {
+	{MM_GIF, "GIF"},
+	{MM_APNG, "aPNG"},
+#ifdef HAVE_LIBAV
+	{MM_MP4, "MP4"},
+	{MM_WEBM, "WebM"},
+	{MM_AVI, "AVI"},
+	{MM_MKV, "Matroska"},
+	{MM_OGV, "Ogg Video"},
+	{MM_LIBAV_GIF, "GIF (libavcodec)"},
+#endif
+	{MM_SCREENSHOT, "Screenshots"},
+	{0, NULL}};
 consvar_t cv_moviemode = CVAR_INIT ("moviemode_mode", "GIF", CV_SAVE|CV_CALL, moviemode_cons_t, Moviemode_mode_Onchange);
 
 consvar_t cv_movie_option = CVAR_INIT ("movie_option", "Default", CV_SAVE|CV_CALL, screenshot_cons_t, Moviemode_option_Onchange);
@@ -680,7 +693,7 @@ static void M_CreateScreenShotPalette(void)
 #if NUMSCREENS > 2
 static const char *Newsnapshotfile(const char *pathname, const char *ext)
 {
-	static char freename[13] = "srb2XXXX.ext";
+	static char freename[14] = "srb2XXXX.ext\0";
 	int i = 5000; // start in the middle: num screenshots divided by 2
 	int add = i; // how much to add or subtract if wrong; gets divided by 2 each time
 	int result; // -1 = guess too high, 0 = correct, 1 = guess too low
@@ -1098,6 +1111,76 @@ static boolean M_SetupaPNG(png_const_charp filename, png_bytep pal)
 #endif
 
 // ==========================================================================
+//                             VIDEO ENCODING
+// ==========================================================================
+boolean M_IsMovieModeVideo(moviemode_t mode)
+{
+	switch (mode)
+	{
+		case MM_MP4:
+		case MM_WEBM:
+		case MM_AVI:
+		case MM_MKV:
+		case MM_OGV:
+		case MM_LIBAV_GIF:
+			return true;
+		default:
+			break;
+	}
+
+	return false;
+}
+
+boolean M_IsRecordingVideo(void)
+{
+	return M_IsMovieModeVideo(moviemode);
+}
+
+static const char *M_GetVideoFormatName(moviemode_t format)
+{
+	switch (format)
+	{
+		case MM_MP4:
+			return "MP4";
+		case MM_WEBM:
+			return "WebM";
+		case MM_AVI:
+			return "AVI";
+		case MM_MKV:
+			return "Matroska";
+		case MM_OGV:
+			return "Ogg Video";
+		case MM_LIBAV_GIF:
+			return "GIF (libavcodec)";
+		default:
+			break;
+	}
+	return "Unknown";
+}
+
+static const char *M_GetVideoFormatExtension(moviemode_t format)
+{
+	switch (format)
+	{
+		case MM_MP4:
+			return "mp4";
+		case MM_WEBM:
+			return "webm";
+		case MM_AVI:
+			return "avi";
+		case MM_MKV:
+			return "mkv";
+		case MM_OGV:
+			return "ogv";
+		case MM_LIBAV_GIF:
+			return "gif";
+		default:
+			break;
+	}
+	return "xxx";
+}
+
+// ==========================================================================
 //                             MOVIE MODE
 // ==========================================================================
 #if NUMSCREENS > 2
@@ -1166,11 +1249,39 @@ static inline moviemode_t M_StartMovieGIF(const char *pathname)
 	return MM_OFF;
 #endif
 }
+
+static inline moviemode_t M_StartMovieVideo(moviemode_t format, const char *pathname)
+{
+	const char *formatname = M_GetVideoFormatName(format);
+#ifdef HAVE_LIBAV
+	const char *freename;
+
+	if (!(freename = Newsnapshotfile(pathname,M_GetVideoFormatExtension(format))))
+	{
+		CONS_Alert(CONS_ERROR, "Couldn't create %s: no slots open in %s\n", formatname, pathname);
+		return MM_OFF;
+	}
+
+	if (!VideoEncoder_Start(va(pandf,pathname,freename)))
+	{
+		CONS_Alert(CONS_ERROR, "Couldn't create %s: error creating %s in %s\n", formatname, freename, pathname);
+		return MM_OFF;
+	}
+
+	return format;
+#else
+	// no video support exists
+	(void)pathname;
+	CONS_Alert(CONS_ERROR, "Couldn't create %s: this build lacks libavcodec support\n", formatname);
+	return MM_OFF;
+#endif
+}
 #endif
 
 void M_StartMovie(void)
 {
 #if NUMSCREENS > 2
+	const char *format = NULL;
 	char pathname[MAX_WADPATH];
 
 	if (moviemode)
@@ -1198,23 +1309,29 @@ void M_StartMovie(void)
 	{
 		case MM_GIF:
 			moviemode = M_StartMovieGIF(pathname);
+			format = "GIF";
 			break;
 		case MM_APNG:
 			moviemode = M_StartMovieAPNG(pathname);
+			format = "aPNG";
 			break;
 		case MM_SCREENSHOT:
 			moviemode = MM_SCREENSHOT;
+			format = "screenshots";
 			break;
-		default: //???
-			return;
+		default:
+			if (M_IsMovieModeVideo(cv_moviemode.value))
+			{
+				moviemode = M_StartMovieVideo(cv_moviemode.value, pathname);
+				format = M_GetVideoFormatName(cv_moviemode.value);
+				break;
+			}
+			else // ???
+				return;
 	}
 
-	if (moviemode == MM_APNG)
-		CONS_Printf(M_GetText("Movie mode enabled (%s).\n"), "aPNG");
-	else if (moviemode == MM_GIF)
-		CONS_Printf(M_GetText("Movie mode enabled (%s).\n"), "GIF");
-	else if (moviemode == MM_SCREENSHOT)
-		CONS_Printf(M_GetText("Movie mode enabled (%s).\n"), "screenshots");
+	if (moviemode != MM_OFF && format)
+		CONS_Printf(M_GetText("Movie mode enabled (%s).\n"), format);
 
 	//singletics = (moviemode != MM_OFF);
 #endif
@@ -1276,6 +1393,8 @@ void M_SaveFrame(void)
 #endif
 			return;
 		default:
+			if (M_IsRecordingVideo())
+				VideoEncoder_WriteFrame();
 			return;
 	}
 #endif
@@ -1314,7 +1433,10 @@ void M_StopMovie(void)
 		case MM_SCREENSHOT:
 			break;
 		default:
-			return;
+			if (M_IsRecordingVideo())
+				VideoEncoder_Stop();
+			else
+				return;
 	}
 	moviemode = MM_OFF;
 	CONS_Printf(M_GetText("Movie mode disabled.\n"));

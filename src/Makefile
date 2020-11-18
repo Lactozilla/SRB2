@@ -360,6 +360,12 @@ else
 NOPNG=1
 endif
 
+ifndef NOLIBAV
+OPTS+=-DHAVE_LIBAV
+LIBS+=$(LIBAV_LDFLAGS)
+CFLAGS+=$(LIBAV_CFLAGS)
+endif
+
 ifndef NOCURL
 OPTS+=-DHAVE_CURL
 CURLCONFIG?=curl-config
@@ -489,6 +495,7 @@ OBJS:=$(i_main_o) \
 		$(OBJDIR)/m_perfstats.o \
 		$(OBJDIR)/m_random.o \
 		$(OBJDIR)/m_queue.o  \
+		$(OBJDIR)/m_videoencoder.o \
 		$(OBJDIR)/info.o     \
 		$(OBJDIR)/p_ceilng.o \
 		$(OBJDIR)/p_enemy.o  \

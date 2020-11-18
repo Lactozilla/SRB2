@@ -1292,8 +1292,17 @@ void I_UnloadSong(void)
 	}
 }
 
+void mix_videoencoder(void *udata, Uint8 *stream, int len)
+{
+	(void)udata;
+	if (M_IsRecordingVideo())
+		VideoEncoder_WriteAudio((INT16 *)stream, len);
+}
+
 boolean I_PlaySong(boolean looping)
 {
+	Mix_RegisterEffect(MIX_CHANNEL_POST, mix_videoencoder, NULL, NULL);
+
 #ifdef HAVE_LIBGME
 	if (gme)
 	{

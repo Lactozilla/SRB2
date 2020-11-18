@@ -46,6 +46,7 @@
 #include "lua_hook.h"
 #include "m_cond.h"
 #include "m_anigif.h"
+#include "m_videoencoder.h"
 #include "md5.h"
 
 #ifdef NETGAME_DEVMODE
@@ -674,6 +675,10 @@ void D_RegisterClientCommands(void)
 	CV_RegisterVar(&cv_gif_downscale);
 	CV_RegisterVar(&cv_gif_dynamicdelay);
 	CV_RegisterVar(&cv_gif_localcolortable);
+	// Video variables
+	CV_RegisterVar(&cv_videoencoder_bitrate);
+	CV_RegisterVar(&cv_videoencoder_gopsize);
+	CV_RegisterVar(&cv_videoencoder_downscale);
 
 #ifdef WALLSPLATS
 	CV_RegisterVar(&cv_splats);

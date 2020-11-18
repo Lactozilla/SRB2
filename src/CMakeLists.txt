@@ -35,6 +35,7 @@ set(SRB2_CORE_SOURCES
 	m_perfstats.c
 	m_queue.c
 	m_random.c
+	m_videoencoder.c
 	md5.c
 	mserv.c
 	http-mserv.c
@@ -102,6 +103,7 @@ set(SRB2_CORE_HEADERS
 	m_queue.h
 	m_random.h
 	m_swap.h
+	m_videoencoder.h
 	md5.h
 	mserv.h
 	p5prof.h

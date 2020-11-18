@@ -30,6 +30,7 @@
 #include "m_cheat.h"
 #include "m_misc.h" // moviemode
 #include "m_anigif.h" // cv_gif_downscale
+#include "m_videoencoder.h" // cv_videoencoder_downscale
 #include "p_setup.h" // NiGHTS grading
 
 //random index
@@ -494,7 +495,8 @@ static void ST_drawDebugInfo(void)
 
 #define VFLAGS V_MONOSPACE|V_SNAPTOTOP|V_SNAPTORIGHT
 
-	if ((moviemode == MM_GIF && cv_gif_downscale.value) || vid.dupx == 1)
+	if ((moviemode == MM_GIF && cv_gif_downscale.value)
+	|| (M_IsRecordingVideo() && cv_videoencoder_downscale.value) || vid.dupx == 1)
 	{
 		textfunc = V_DrawRightAlignedString;
 		lowh = ((vid.height/vid.dupy) - 16);

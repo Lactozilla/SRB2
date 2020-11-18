@@ -55,6 +55,7 @@
 #include "mserv.h"
 #include "m_misc.h"
 #include "m_anigif.h"
+#include "m_videoencoder.h"
 #include "byteptr.h"
 #include "st_stuff.h"
 #include "i_sound.h"
@@ -1483,7 +1484,7 @@ static menuitem_t OP_SoundOptionsMenu[] =
 
 	{IT_STRING | IT_CVAR,  NULL,  "MIDI Music", &cv_gamemidimusic, 36},
 	{IT_STRING | IT_CVAR | IT_CV_SLIDER, NULL, "MIDI Music Volume", &cv_midimusicvolume, 41},
-	
+
 	{IT_STRING | IT_CVAR,  NULL,  "Music Preference", &cv_musicpref, 51},
 
 	{IT_HEADER, NULL, "Miscellaneous", NULL, 61},
@@ -1563,6 +1564,10 @@ static menuitem_t OP_ScreenshotOptionsMenu[] =
 	{IT_STRING|IT_CVAR, NULL, "Compression Level", &cv_zlib_levela,               100},
 	{IT_STRING|IT_CVAR, NULL, "Strategy",          &cv_zlib_strategya,            105},
 	{IT_STRING|IT_CVAR, NULL, "Window Size",       &cv_zlib_window_bitsa,         110},
+
+	{IT_STRING|IT_CVAR, NULL, "Bit rate",          &cv_videoencoder_bitrate,      95},
+	{IT_STRING|IT_CVAR, NULL, "GOP size",          &cv_videoencoder_gopsize,      100},
+	{IT_STRING|IT_CVAR, NULL, "Downscaling",       &cv_videoencoder_downscale,    105},
 };
 
 enum
@@ -1576,6 +1581,8 @@ enum
 	op_screenshot_gif_end = 15,
 	op_screenshot_apng_start = 16,
 	op_screenshot_apng_end = 19,
+	op_screenshot_video_start = 20,
+	op_screenshot_video_end = 22,
 };
 
 static menuitem_t OP_EraseDataMenu[] =
@@ -2459,7 +2466,7 @@ void Screenshot_option_Onchange(void)
 void Moviemode_mode_Onchange(void)
 {
 	INT32 i, cstart, cend;
-	for (i = op_screenshot_gif_start; i <= op_screenshot_apng_end; ++i)
+	for (i = op_screenshot_gif_start; i <= op_screenshot_video_end; ++i)
 		OP_ScreenshotOptionsMenu[i].status = IT_DISABLED;
 
 	switch (cv_moviemode.value)
@@ -2471,6 +2478,14 @@ void Moviemode_mode_Onchange(void)
 		case MM_APNG:
 			cstart = op_screenshot_apng_start;
 			cend = op_screenshot_apng_end;
+			break;
+		case MM_MP4:
+		case MM_WEBM:
+		case MM_AVI:
+		case MM_MKV:
+		case MM_OGV:
+			cstart = op_screenshot_video_start;
+			cend = op_screenshot_video_end;
 			break;
 		default:
 			return;
