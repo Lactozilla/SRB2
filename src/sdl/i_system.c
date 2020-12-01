@@ -482,7 +482,7 @@ static void I_StartupConsole(void)
 void I_GetConsoleEvents(void)
 {
 	// we use this when sending back commands
-	event_t ev = {0,0,0,0};
+	event_t ev = {0,0,0,0,{0}};
 	char key = 0;
 	ssize_t d;
 
@@ -922,7 +922,7 @@ void I_ShutdownJoystick(void)
 
 void I_GetJoystickEvents(void)
 {
-	static event_t event = {0,0,0,0};
+	static event_t event = {0,0,0,0,{0}};
 	INT32 i = 0;
 	UINT64 joyhats = 0;
 #if 0
@@ -1192,7 +1192,7 @@ void I_ShutdownJoystick2(void)
 
 void I_GetJoystick2Events(void)
 {
-	static event_t event = {0,0,0,0};
+	static event_t event = {0,0,0,0,{0}};
 	INT32 i = 0;
 	UINT64 joyhats = 0;
 #if 0
@@ -2727,8 +2727,10 @@ const char *I_ClipboardPaste(void)
 		}
 		else if (*i == '\t')
 			*i = ' '; // Tabs become spaces
+#if 0
 		else if (*i < 32 || (unsigned)*i > 127)
 			*i = '?'; // Nonprintable chars become question marks
+#endif
 		++i;
 	}
 	return (const char *)&clipboard_modified;

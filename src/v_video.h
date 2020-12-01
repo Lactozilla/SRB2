@@ -193,6 +193,10 @@ void V_DrawPromptBack(INT32 boxheight, INT32 color);
 void V_DrawCharacter(INT32 x, INT32 y, INT32 c, boolean lowercaseallowed);
 // draw a single character, but for the chat
 void V_DrawChatCharacter(INT32 x, INT32 y, INT32 c, boolean lowercaseallowed, UINT8 *colormap);
+// draw a single Unicode character
+void V_DrawUnicodeCharacter(INT32 x, INT32 y, char *utf8, INT32 flags, boolean lowercaseallowed);
+// draw a single Unicode character, but for the chat
+void V_DrawUnicodeChatCharacter(INT32 x, INT32 y, char *utf8, INT32 flags, boolean lowercaseallowed, UINT8 *colormap);
 
 UINT8 *V_GetStringColormap(INT32 colorflags);
 

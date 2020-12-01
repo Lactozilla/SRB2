@@ -26,6 +26,20 @@
 
 #define HU_FONTSIZE (HU_FONTEND - HU_FONTSTART + 1)
 
+// Unicode font
+#define UNI_FONTSTART '\xA0'
+#define UNI_FONTEND 12543 // 0x30FF
+
+#define UNI_FONTSIZE (UNI_FONTEND - UNI_FONTSTART + 1)
+
+// Emoji (U+1F600 - U+1F644)
+// This assumes emoji only are in a specific block.
+// It will need more complex handling if other emojis are made for the game.
+#define EMOJI_FONTSTART 128512
+#define EMOJI_FONTEND 128580
+
+#define EMOJI_FONTSIZE (EMOJI_FONTEND - EMOJI_FONTSTART + 1)
+
 // Level title font
 #define LT_FONTSTART '!' // the first font characters
 #define LT_FONTEND 'z' // the last font characters
@@ -40,6 +54,21 @@
 #define NT_FONTSTART '!' // the first font character
 #define NT_FONTEND 'Z' // the last font character
 #define NT_FONTSIZE (NT_FONTEND - NT_FONTSTART + 1)
+
+patch_t *HU_GetCharacterPatch(const char *chr);
+patch_t **HU_GetFont(const char *chr, INT32 *fontstart, INT32 *fontsize);
+patch_t **HU_GetFontFromUCS(INT32 chr, INT32 *fontstart, INT32 *fontsize);
+
+patch_t *HU_GetCharacterPatchInFont(patch_t **font, INT32 fontstart, INT32 fontsize, INT32 chr);
+
+boolean HU_IsCharacterControlCode(char chr);
+boolean HU_IsCharacterColorCode(char chr);
+
+patch_t *Unicode_GetCharacter(INT32 chr);
+patch_t *Unicode_GetEmoji(INT32 chr);
+
+boolean Unicode_IsCharacterValid(INT32 chr);
+boolean Unicode_IsCharacterEmoji(INT32 chr);
 
 #define HU_CROSSHAIRS 3 // maximum of 9 - see HU_Init();
 
@@ -79,7 +108,10 @@ void HU_AddChatText(const char *text, boolean playsound);
 extern boolean chat_on;
 boolean HU_ChatActive(void);
 
-extern patch_t *hu_font[HU_FONTSIZE], *tny_font[HU_FONTSIZE];
+extern patch_t *hu_font[HU_FONTSIZE];
+extern patch_t *uni_font[UNI_FONTSIZE];
+extern patch_t *emoji_font[EMOJI_FONTSIZE];
+extern patch_t *tny_font[HU_FONTSIZE];
 extern patch_t *tallnum[10];
 extern patch_t *nightsnum[10];
 extern patch_t *lt_font[LT_FONTSIZE];

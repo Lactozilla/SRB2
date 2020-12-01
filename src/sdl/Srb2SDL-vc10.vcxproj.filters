@@ -456,6 +456,9 @@
     <ClInclude Include="..\lzf.h">
       <Filter>W_Wad</Filter>
     </ClInclude>
+    <ClInclude Include="..\utf8.h">
+      <Filter>M_Misc</Filter>
+    </ClInclude>
     <ClInclude Include="..\w_wad.h">
       <Filter>W_Wad</Filter>
     </ClInclude>
@@ -911,6 +914,9 @@
     </ClCompile>
     <ClCompile Include="..\lzf.c">
       <Filter>W_Wad</Filter>
+    </ClCompile>
+    <ClCompile Include="..\utf8.c">
+      <Filter>M_Misc</Filter>
     </ClCompile>
     <ClCompile Include="..\w_wad.c">
       <Filter>W_Wad</Filter>

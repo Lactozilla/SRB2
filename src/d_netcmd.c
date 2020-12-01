@@ -954,9 +954,17 @@ boolean EnsurePlayerNameIsGood(char *name, INT32 playernum)
 
 	// Also, anything over 0x80 is disallowed too, since compilers love to
 	// differ on whether they're printable characters or not.
-	for (ix = 0; name[ix] != '\0'; ix++)
-		if (!isprint(name[ix]) || name[ix] == ';' || (UINT8)(name[ix]) >= 0x80)
+	for (ix = 0; name[ix] != '\0';)
+	{
+		char *chr = (name + ix);
+		int len = M_chrlen(chr);
+		char c = *chr;
+
+		if (c == ';' || HU_IsCharacterControlCode(c))
 			return false;
+
+		ix += len;
+	}
 
 	// Check if a player is currently using the name, case-insensitively.
 	for (ix = 0; ix < MAXPLAYERS; ix++)
@@ -1044,10 +1052,15 @@ void CleanupPlayerName(INT32 playernum, const char *newname)
 		do
 		{
 			/* from EnsurePlayerNameIsGood */
-			if (!isprint(*p) || *p == ';' || (UINT8)*p >= 0x80)
+			char chr = *p;
+			int len = M_chrlen(p);
+
+			if (chr == ';' || HU_IsCharacterControlCode(chr))
 				break;
+
+			p += len;
 		}
-		while (*++p) ;
+		while (*p) ;
 
 		if (*p)/* bad char found */
 			break;

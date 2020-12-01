@@ -30,6 +30,8 @@
 #include "m_random.h"
 #include "doomstat.h"
 
+#include "utf8.h"
+
 #ifdef HWRENDER
 #include "hardware/hw_glob.h"
 #endif
@@ -2000,7 +2002,6 @@ void V_DrawCharacter(INT32 x, INT32 y, INT32 c, boolean lowercaseallowed)
 void V_DrawChatCharacter(INT32 x, INT32 y, INT32 c, boolean lowercaseallowed, UINT8 *colormap)
 {
 	INT32 w, flags;
-	//const UINT8 *colormap = V_GetStringColormap(c);
 
 	flags = c & ~(V_CHARCOLORMASK | V_PARAMMASK);
 	c &= 0x7f;
@@ -2016,8 +2017,82 @@ void V_DrawChatCharacter(INT32 x, INT32 y, INT32 c, boolean lowercaseallowed, UI
 		return;
 
 	V_DrawFixedPatch(x*FRACUNIT, y*FRACUNIT, (vid.width < 640) ? (FRACUNIT) : (FRACUNIT/2), flags, hu_font[c], colormap);
+}
 
+void V_DrawUnicodeCharacter(INT32 x, INT32 y, char *utf8, INT32 flags, boolean lowercaseallowed)
+{
+	patch_t *chr = NULL;
+	INT32 c, w;
+	const UINT8 *colormap = V_GetStringColormap(flags);
 
+	if (!M_CharIsUnicode(utf8[0]))
+	{
+		V_DrawCharacter(x, y, utf8[0] | flags, lowercaseallowed);
+		return;
+	}
+
+	c = M_UTF8ToUCS(utf8);
+
+	if (c >= EMOJI_FONTSTART)
+	{
+		chr = Unicode_GetEmoji(c);
+		colormap = NULL;
+	}
+	else
+	{
+		if (!lowercaseallowed)
+			c = toupper(c);
+		chr = Unicode_GetCharacter(c);
+	}
+
+	if (chr == NULL)
+		return;
+
+	w = SHORT(chr->width);
+	if (x + w > vid.width)
+		return;
+
+	flags &= ~(V_CHARCOLORMASK | V_PARAMMASK);
+
+	if (colormap != NULL)
+		V_DrawMappedPatch(x, y, flags, chr, colormap);
+	else
+		V_DrawScaledPatch(x, y, flags, chr);
+}
+
+void V_DrawUnicodeChatCharacter(INT32 x, INT32 y, char *utf8, INT32 flags, boolean lowercaseallowed, UINT8 *colormap)
+{
+	patch_t *chr = NULL;
+	INT32 c, w;
+
+	if (!M_CharIsUnicode(utf8[0]))
+	{
+		V_DrawChatCharacter(x, y, utf8[0] | flags, lowercaseallowed, colormap);
+		return;
+	}
+
+	c = M_UTF8ToUCS(utf8);
+
+	if (c >= EMOJI_FONTSTART)
+	{
+		chr = Unicode_GetEmoji(c);
+		colormap = NULL;
+	}
+	else
+	{
+		if (!lowercaseallowed)
+			c = toupper(c);
+		chr = Unicode_GetCharacter(c);
+	}
+
+	if (chr == NULL)
+		return;
+
+	w = (vid.width < 640 ) ? (SHORT(chr->width)/2) : (SHORT(chr->width));	// use normal sized characters if we're using a terribly low resolution.
+	if (x + w > vid.width)
+		return;
+
+	V_DrawFixedPatch(x*FRACUNIT, y*FRACUNIT, (vid.width < 640) ? (FRACUNIT) : (FRACUNIT/2), flags, chr, colormap);
 }
 
 // Precompile a wordwrapped string to any given width.
@@ -2051,41 +2126,65 @@ char *V_WordWrap(INT32 x, INT32 w, INT32 option, const char *string)
 			break;
 	}
 
-	for (i = 0; i < slen; ++i)
+	for (i = 0; i < slen;)
 	{
-		c = newstring[i];
-		if ((UINT8)c & 0x80) //color parsing! -Inuyasha 2.16.09
-			continue;
+		const char *ch = &newstring[i];
+		patch_t *pat = NULL;
+		patch_t **font = hu_font;
+		int fontstart = HU_FONTSTART;
+		int fontsize = HU_FONTSIZE;
+		int len = 1;
+		boolean unicode = false, emoji = false;
 
-		if (c == '\n')
+		c = newstring[i];
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+
+			font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+			emoji = Unicode_IsCharacterEmoji(c);
+			unicode = true;
+		}
+		else if (HU_IsCharacterControlCode(c)) //color parsing! -Inuyasha 2.16.09
+		{
+			i += len;
+			continue;
+		}
+		else if (c == '\n')
 		{
 			x = 0;
 			lastusablespace = 0;
+			i += len;
 			continue;
 		}
 
-		if (!(option & V_ALLOWLOWERCASE))
+		if (!emoji && !(option & V_ALLOWLOWERCASE))
 			c = toupper(c);
-		c -= HU_FONTSTART;
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
 
-		if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
+		if (!pat)
 		{
 			chw = spacewidth;
-			lastusablespace = i;
+			if (!unicode)
+				lastusablespace = i;
 		}
 		else
-			chw = (charwidth ? charwidth : hu_font[c]->width);
+			chw = (charwidth ? charwidth : pat->width);
 
 		x += chw;
+		i += len;
 
 		if (lastusablespace != 0 && x > w)
 		{
 			newstring[lastusablespace] = '\n';
-			i = lastusablespace;
+			i = lastusablespace + len;
 			lastusablespace = 0;
 			x = 0;
 		}
 	}
+
 	return newstring;
 }
 
@@ -2095,9 +2194,10 @@ char *V_WordWrap(INT32 x, INT32 w, INT32 option, const char *string)
 //
 void V_DrawString(INT32 x, INT32 y, INT32 option, const char *string)
 {
-	INT32 w, c, cx = x, cy = y, dupx, dupy, scrwidth, center = 0, left = 0;
+	INT32 c, w, cx = x, cy = y, dupx, dupy, scrwidth, center = 0, left = 0;
 	const char *ch = string;
 	INT32 charflags = (option & V_CHARCOLORMASK);
+	patch_t *pat = NULL;
 	const UINT8 *colormap = NULL;
 	INT32 spacewidth = 4, charwidth = 0;
 
@@ -2135,18 +2235,34 @@ void V_DrawString(INT32 x, INT32 y, INT32 option, const char *string)
 			break;
 	}
 
-	for (;;ch++)
+	for (;;)
 	{
-		if (!*ch)
+		patch_t **font = hu_font;
+		INT32 fontstart = HU_FONTSTART;
+		INT32 fontsize = HU_FONTSIZE;
+		boolean emoji = false;
+		INT32 len = 1;
+
+		c = *ch;
+		if (!c)
 			break;
-		if (*ch & 0x80) //color parsing -x 2.16.09
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+			emoji = Unicode_IsCharacterEmoji(c);
+		}
+		else if (HU_IsCharacterColorCode(c)) //color parsing -x 2.16.09
 		{
 			// manually set flags override color codes
 			if (!(option & V_CHARCOLORMASK))
-				charflags = ((*ch & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+				charflags = ((c & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+			ch += len;
 			continue;
 		}
-		if (*ch == '\n')
+		else if (c == '\n')
 		{
 			cx = x;
 
@@ -2155,16 +2271,18 @@ void V_DrawString(INT32 x, INT32 y, INT32 option, const char *string)
 			else
 				cy += 12*dupy;
 
+			ch += len;
 			continue;
 		}
 
-		c = *ch;
-		if (!lowercase)
+		ch += len;
+
+		if (!emoji && !lowercase)
 			c = toupper(c);
-		c -= HU_FONTSTART;
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
 
 		// character does not exist or is a space
-		if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
+		if (!pat)
 		{
 			cx += spacewidth * dupx;
 			continue;
@@ -2173,21 +2291,25 @@ void V_DrawString(INT32 x, INT32 y, INT32 option, const char *string)
 		if (charwidth)
 		{
 			w = charwidth * dupx;
-			center = w/2 - SHORT(hu_font[c]->width)*dupx/2;
+			center = w/2 - SHORT(pat->width)*dupx/2;
 		}
 		else
-			w = SHORT(hu_font[c]->width) * dupx;
+			w = SHORT(pat->width) * dupx;
 
 		if (cx > scrwidth)
 			continue;
-		if (cx+left + w < 0) //left boundary check
+		else if (cx+left + w < 0) //left boundary check
 		{
 			cx += w;
 			continue;
 		}
 
-		colormap = V_GetStringColormap(charflags);
-		V_DrawFixedPatch((cx + center)<<FRACBITS, cy<<FRACBITS, FRACUNIT, option, hu_font[c], colormap);
+		if (!emoji)
+			colormap = V_GetStringColormap(charflags);
+		else
+			colormap = NULL;
+
+		V_DrawFixedPatch((cx + center)<<FRACBITS, cy<<FRACBITS, FRACUNIT, option, pat, colormap);
 
 		cx += w;
 	}
@@ -2214,6 +2336,7 @@ void V_DrawSmallString(INT32 x, INT32 y, INT32 option, const char *string)
 	INT32 w, c, cx = x, cy = y, dupx, dupy, scrwidth, center = 0, left = 0;
 	const char *ch = string;
 	INT32 charflags = 0;
+	patch_t *pat = NULL;
 	const UINT8 *colormap = NULL;
 	INT32 spacewidth = 2, charwidth = 0;
 
@@ -2253,18 +2376,34 @@ void V_DrawSmallString(INT32 x, INT32 y, INT32 option, const char *string)
 			break;
 	}
 
-	for (;;ch++)
+	for (;;)
 	{
-		if (!*ch)
+		patch_t **font = hu_font;
+		INT32 fontstart = HU_FONTSTART;
+		INT32 fontsize = HU_FONTSIZE;
+		boolean emoji = false;
+		INT32 len = 1;
+
+		c = *ch;
+		if (!c)
 			break;
-		if (*ch & 0x80) //color parsing -x 2.16.09
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+			emoji = Unicode_IsCharacterEmoji(c);
+		}
+		else if (HU_IsCharacterColorCode(c)) //color parsing -x 2.16.09
 		{
 			// manually set flags override color codes
 			if (!(option & V_CHARCOLORMASK))
-				charflags = ((*ch & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+				charflags = ((c & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+			ch += len;
 			continue;
 		}
-		if (*ch == '\n')
+		else if (c == '\n')
 		{
 			cx = x;
 
@@ -2273,15 +2412,17 @@ void V_DrawSmallString(INT32 x, INT32 y, INT32 option, const char *string)
 			else
 				cy += 6*dupy;
 
+			ch += len;
 			continue;
 		}
 
-		c = *ch;
-		if (!lowercase)
-			c = toupper(c);
-		c -= HU_FONTSTART;
+		ch += len;
 
-		if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
+		if (!Unicode_IsCharacterEmoji(c) && !lowercase)
+			c = toupper(c);
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
+
+		if (!pat)
 		{
 			cx += spacewidth * dupx;
 			continue;
@@ -2290,21 +2431,25 @@ void V_DrawSmallString(INT32 x, INT32 y, INT32 option, const char *string)
 		if (charwidth)
 		{
 			w = charwidth * dupx;
-			center = w/2 - SHORT(hu_font[c]->width)*dupx/4;
+			center = w/2 - SHORT(pat->width)*dupx/4;
 		}
 		else
-			w = SHORT(hu_font[c]->width) * dupx / 2;
+			w = SHORT(pat->width) * dupx / 2;
 
 		if (cx > scrwidth)
 			continue;
-		if (cx+left + w < 0) //left boundary check
+		else if (cx+left + w < 0) //left boundary check
 		{
 			cx += w;
 			continue;
 		}
 
-		colormap = V_GetStringColormap(charflags);
-		V_DrawFixedPatch((cx + center)<<FRACBITS, cy<<FRACBITS, FRACUNIT/2, option, hu_font[c], colormap);
+		if (!emoji)
+			colormap = V_GetStringColormap(charflags);
+		else
+			colormap = NULL;
+
+		V_DrawFixedPatch((cx + center)<<FRACBITS, cy<<FRACBITS, FRACUNIT/2, option, pat, colormap);
 
 		cx += w;
 	}
@@ -2332,6 +2477,7 @@ void V_DrawThinString(INT32 x, INT32 y, INT32 option, const char *string)
 	INT32 w, c, cx = x, cy = y, dupx, dupy, scrwidth, left = 0;
 	const char *ch = string;
 	INT32 charflags = 0;
+	patch_t *pat = NULL;
 	const UINT8 *colormap = NULL;
 	INT32 spacewidth = 2, charwidth = 0;
 
@@ -2371,18 +2517,40 @@ void V_DrawThinString(INT32 x, INT32 y, INT32 option, const char *string)
 			break;
 	}
 
-	for (;;ch++)
+	for (;;)
 	{
-		if (!*ch)
+		patch_t **font = tny_font;
+		INT32 fontstart = HU_FONTSTART;
+		INT32 fontsize = HU_FONTSIZE;
+		boolean emoji = false;
+		INT32 len = 1;
+
+		c = *ch;
+		if (!c)
 			break;
-		if (*ch & 0x80) //color parsing -x 2.16.09
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			emoji = Unicode_IsCharacterEmoji(c);
+
+			// There is no thin Unicode font currently.
+			// Remove this whenever it exists.
+			if (!emoji)
+				c = (INT32)('?');
+			else
+				font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+		}
+		else if (HU_IsCharacterColorCode(c)) //color parsing -x 2.16.09
 		{
 			// manually set flags override color codes
 			if (!(option & V_CHARCOLORMASK))
-				charflags = ((*ch & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+				charflags = ((c & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+			ch += len;
 			continue;
 		}
-		if (*ch == '\n')
+		else if (c == '\n')
 		{
 			cx = x;
 
@@ -2391,15 +2559,18 @@ void V_DrawThinString(INT32 x, INT32 y, INT32 option, const char *string)
 			else
 				cy += 12*dupy;
 
+			ch += len;
 			continue;
 		}
 
-		c = *ch;
-		if (!lowercase || !tny_font[c-HU_FONTSTART])
-			c = toupper(c);
-		c -= HU_FONTSTART;
+		ch += len;
 
-		if (c < 0 || c >= HU_FONTSIZE || !tny_font[c])
+		if ((!Unicode_IsCharacterEmoji(c) && !lowercase)
+		|| (font == tny_font && c-HU_FONTSTART >= 0 && c-HU_FONTSTART <= HU_FONTSIZE && !tny_font[c-HU_FONTSTART]))
+			c = toupper(c);
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
+
+		if (!pat)
 		{
 			cx += spacewidth * dupx;
 			continue;
@@ -2408,18 +2579,22 @@ void V_DrawThinString(INT32 x, INT32 y, INT32 option, const char *string)
 		if (charwidth)
 			w = charwidth * dupx;
 		else
-			w = (SHORT(tny_font[c]->width) * dupx);
+			w = (SHORT(pat->width) * dupx);
 
 		if (cx > scrwidth)
 			continue;
-		if (cx+left + w < 0) //left boundary check
+		else if (cx+left + w < 0) //left boundary check
 		{
 			cx += w;
 			continue;
 		}
 
-		colormap = V_GetStringColormap(charflags);
-		V_DrawFixedPatch(cx<<FRACBITS, cy<<FRACBITS, FRACUNIT, option, tny_font[c], colormap);
+		if (!emoji)
+			colormap = V_GetStringColormap(charflags);
+		else
+			colormap = NULL;
+
+		V_DrawFixedPatch(cx<<FRACBITS, cy<<FRACBITS, FRACUNIT, option, pat, colormap);
 
 		cx += w;
 	}
@@ -2470,6 +2645,7 @@ void V_DrawStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *string)
 	INT32 w, c, dupx, dupy, scrwidth, center = 0, left = 0;
 	const char *ch = string;
 	INT32 charflags = 0;
+	patch_t *pat = NULL;
 	const UINT8 *colormap = NULL;
 	INT32 spacewidth = 4, charwidth = 0;
 
@@ -2509,18 +2685,34 @@ void V_DrawStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *string)
 			break;
 	}
 
-	for (;;ch++)
+	for (;;)
 	{
-		if (!*ch)
+		patch_t **font = hu_font;
+		INT32 fontstart = HU_FONTSTART;
+		INT32 fontsize = HU_FONTSIZE;
+		boolean emoji = false;
+		INT32 len = 1;
+
+		c = *ch;
+		if (!c)
 			break;
-		if (*ch & 0x80) //color ignoring
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			font = HU_GetFont(ch, &fontstart, &fontsize);
+			emoji = Unicode_IsCharacterEmoji(c);
+		}
+		else if (HU_IsCharacterColorCode(c)) //color ignoring
 		{
 			// manually set flags override color codes
 			if (!(option & V_CHARCOLORMASK))
-				charflags = ((*ch & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+				charflags = ((c & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+			ch += len;
 			continue;
 		}
-		if (*ch == '\n')
+		else if (c == '\n')
 		{
 			cx = x;
 
@@ -2529,16 +2721,18 @@ void V_DrawStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *string)
 			else
 				cy += (12*dupy)<<FRACBITS;
 
+			ch += len;
 			continue;
 		}
 
-		c = *ch;
-		if (!lowercase)
+		ch += len;
+
+		if (!Unicode_IsCharacterEmoji(c) && !lowercase)
 			c = toupper(c);
-		c -= HU_FONTSTART;
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
 
 		// character does not exist or is a space
-		if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
+		if (!pat)
 		{
 			cx += (spacewidth * dupx)<<FRACBITS;
 			continue;
@@ -2547,21 +2741,25 @@ void V_DrawStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *string)
 		if (charwidth)
 		{
 			w = charwidth * dupx;
-			center = w/2 - SHORT(hu_font[c]->width)*(dupx/2);
+			center = w/2 - SHORT(pat->width)*(dupx/2);
 		}
 		else
-			w = SHORT(hu_font[c]->width) * dupx;
+			w = SHORT(pat->width) * dupx;
 
 		if ((cx>>FRACBITS) > scrwidth)
 			continue;
-		if ((cx>>FRACBITS)+left + w < 0) //left boundary check
+		else if ((cx>>FRACBITS)+left + w < 0) //left boundary check
 		{
 			cx += w<<FRACBITS;
 			continue;
 		}
 
-		colormap = V_GetStringColormap(charflags);
-		V_DrawFixedPatch(cx + (center<<FRACBITS), cy, FRACUNIT, option, hu_font[c], colormap);
+		if (!emoji)
+			colormap = V_GetStringColormap(charflags);
+		else
+			colormap = NULL;
+
+		V_DrawFixedPatch(cx + (center<<FRACBITS), cy, FRACUNIT, option, pat, colormap);
 
 		cx += w<<FRACBITS;
 	}
@@ -2586,6 +2784,7 @@ void V_DrawSmallStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *st
 	INT32 w, c, dupx, dupy, scrwidth, center = 0, left = 0;
 	const char *ch = string;
 	INT32 charflags = 0;
+	patch_t *pat = NULL;
 	const UINT8 *colormap = NULL;
 	INT32 spacewidth = 2, charwidth = 0;
 
@@ -2625,18 +2824,40 @@ void V_DrawSmallStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *st
 			break;
 	}
 
-	for (;;ch++)
+	for (;;)
 	{
-		if (!*ch)
+		patch_t **font = tny_font;
+		INT32 fontstart = HU_FONTSTART;
+		INT32 fontsize = HU_FONTSIZE;
+		boolean emoji = false;
+		INT32 len = 1;
+
+		c = *ch;
+		if (!c)
 			break;
-		if (*ch & 0x80) //color parsing -x 2.16.09
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			emoji = Unicode_IsCharacterEmoji(c);
+
+			// There is no thin Unicode font currently.
+			// Remove this whenever it exists.
+			if (!emoji)
+				c = (INT32)('?');
+			else
+				font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+		}
+		else if (HU_IsCharacterColorCode(c)) //color parsing -x 2.16.09
 		{
 			// manually set flags override color codes
 			if (!(option & V_CHARCOLORMASK))
-				charflags = ((*ch & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+				charflags = ((c & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+			ch += len;
 			continue;
 		}
-		if (*ch == '\n')
+		else if (c == '\n')
 		{
 			cx = x;
 
@@ -2645,16 +2866,18 @@ void V_DrawSmallStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *st
 			else
 				cy += (6*dupy)<<FRACBITS;
 
+			ch += len;
 			continue;
 		}
 
-		c = *ch;
-		if (!lowercase)
+		ch += len;
+
+		if (!Unicode_IsCharacterEmoji(c) && !lowercase)
 			c = toupper(c);
-		c -= HU_FONTSTART;
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
 
 		// character does not exist or is a space
-		if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
+		if (pat)
 		{
 			cx += (spacewidth * dupx)<<FRACBITS;
 			continue;
@@ -2663,22 +2886,25 @@ void V_DrawSmallStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *st
 		if (charwidth)
 		{
 			w = charwidth * dupx;
-			center = w/2 - SHORT(hu_font[c]->width)*(dupx/4);
+			center = w/2 - SHORT(pat->width)*(dupx/4);
 		}
 		else
-			w = SHORT(hu_font[c]->width) * dupx / 2;
+			w = SHORT(pat->width) * dupx / 2;
 
 		if ((cx>>FRACBITS) > scrwidth)
 			break;
-		if ((cx>>FRACBITS)+left + w < 0) //left boundary check
+		else if ((cx>>FRACBITS)+left + w < 0) //left boundary check
 		{
 			cx += w<<FRACBITS;
 			continue;
 		}
 
-		colormap = V_GetStringColormap(charflags);
+		if (!emoji)
+			colormap = V_GetStringColormap(charflags);
+		else
+			colormap = NULL;
 
-		V_DrawFixedPatch(cx + (center<<FRACBITS), cy, FRACUNIT/2, option, hu_font[c], colormap);
+		V_DrawFixedPatch(cx + (center<<FRACBITS), cy, FRACUNIT/2, option, pat, colormap);
 
 		cx += w<<FRACBITS;
 	}
@@ -2703,6 +2929,7 @@ void V_DrawThinStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *str
 	INT32 w, c, dupx, dupy, scrwidth, center = 0, left = 0;
 	const char *ch = string;
 	INT32 charflags = 0;
+	patch_t *pat = NULL;
 	const UINT8 *colormap = NULL;
 	INT32 spacewidth = 2, charwidth = 0;
 
@@ -2742,18 +2969,40 @@ void V_DrawThinStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *str
 			break;
 	}
 
-	for (;;ch++)
+	for (;;)
 	{
-		if (!*ch)
+		patch_t **font = tny_font;
+		INT32 fontstart = HU_FONTSTART;
+		INT32 fontsize = HU_FONTSIZE;
+		boolean emoji = false;
+		INT32 len = 1;
+
+		c = *ch;
+		if (!c)
 			break;
-		if (*ch & 0x80) //color parsing -x 2.16.09
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			emoji = Unicode_IsCharacterEmoji(c);
+
+			// There is no thin Unicode font currently.
+			// Remove this whenever it exists.
+			if (!emoji)
+				c = (INT32)('?');
+			else
+				font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+		}
+		else if (HU_IsCharacterColorCode(c)) //color parsing -x 2.16.09
 		{
 			// manually set flags override color codes
 			if (!(option & V_CHARCOLORMASK))
-				charflags = ((*ch & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+				charflags = ((c & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+			ch += len;
 			continue;
 		}
-		if (*ch == '\n')
+		else if (c == '\n')
 		{
 			cx = x;
 
@@ -2762,16 +3011,19 @@ void V_DrawThinStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *str
 			else
 				cy += (12*dupy)<<FRACBITS;
 
+			ch += len;
 			continue;
 		}
 
-		c = *ch;
-		if (!lowercase || !tny_font[c-HU_FONTSTART])
+		ch += len;
+
+		if ((!Unicode_IsCharacterEmoji(c) && !lowercase)
+		|| (font == tny_font && c-HU_FONTSTART >= 0 && c-HU_FONTSTART <= HU_FONTSIZE && !tny_font[c-HU_FONTSTART]))
 			c = toupper(c);
-		c -= HU_FONTSTART;
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
 
 		// character does not exist or is a space
-		if (c < 0 || c >= HU_FONTSIZE || !tny_font[c])
+		if (!pat)
 		{
 			cx += (spacewidth * dupx)<<FRACBITS;
 			continue;
@@ -2780,22 +3032,25 @@ void V_DrawThinStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *str
 		if (charwidth)
 		{
 			w = charwidth * dupx;
-			center = w/2 - SHORT(tny_font[c]->width)*(dupx/2);
+			center = w/2 - SHORT(pat->width)*(dupx/2);
 		}
 		else
-			w = SHORT(tny_font[c]->width) * dupx;
+			w = SHORT(pat->width) * dupx;
 
 		if ((cx>>FRACBITS) > scrwidth)
 			break;
-		if ((cx>>FRACBITS)+left + w < 0) //left boundary check
+		else if ((cx>>FRACBITS)+left + w < 0) //left boundary check
 		{
 			cx += w<<FRACBITS;
 			continue;
 		}
 
-		colormap = V_GetStringColormap(charflags);
+		if (!emoji)
+			colormap = V_GetStringColormap(charflags);
+		else
+			colormap = NULL;
 
-		V_DrawFixedPatch(cx + (center<<FRACBITS), cy, FRACUNIT, option, tny_font[c], colormap);
+		V_DrawFixedPatch(cx + (center<<FRACBITS), cy, FRACUNIT, option, pat, colormap);
 
 		cx += w<<FRACBITS;
 	}
@@ -2820,6 +3075,7 @@ void V_DrawSmallThinStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char
 	INT32 w, c, dupx, dupy, scrwidth, center = 0, left = 0;
 	const char *ch = string;
 	INT32 charflags = 0;
+	patch_t *pat = NULL;
 	const UINT8 *colormap = NULL;
 	INT32 spacewidth = 2<<FRACBITS, charwidth = 0;
 
@@ -2859,18 +3115,40 @@ void V_DrawSmallThinStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char
 			break;
 	}
 
-	for (;;ch++)
+	for (;;)
 	{
-		if (!*ch)
+		patch_t **font = tny_font;
+		INT32 fontstart = HU_FONTSTART;
+		INT32 fontsize = HU_FONTSIZE;
+		boolean emoji = false;
+		INT32 len = 1;
+
+		c = *ch;
+		if (!c)
 			break;
-		if (*ch & 0x80) //color parsing -x 2.16.09
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			emoji = Unicode_IsCharacterEmoji(c);
+
+			// There is no thin Unicode font currently.
+			// Remove this whenever it exists.
+			if (!emoji)
+				c = (INT32)('?');
+			else
+				font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+		}
+		else if (HU_IsCharacterColorCode(c)) //color parsing -x 2.16.09
 		{
 			// manually set flags override color codes
 			if (!(option & V_CHARCOLORMASK))
-				charflags = ((*ch & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+				charflags = ((c & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+			ch += len;
 			continue;
 		}
-		if (*ch == '\n')
+		else if (c == '\n')
 		{
 			cx = x;
 
@@ -2879,16 +3157,19 @@ void V_DrawSmallThinStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char
 			else
 				cy += 6*dupy;
 
+			ch += len;
 			continue;
 		}
 
-		c = *ch;
-		if (!lowercase)
+		ch += len;
+
+		if ((!Unicode_IsCharacterEmoji(c) && !lowercase)
+		|| (font == tny_font && c-HU_FONTSTART >= 0 && c-HU_FONTSTART <= HU_FONTSIZE && !tny_font[c-HU_FONTSTART]))
 			c = toupper(c);
-		c -= HU_FONTSTART;
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
 
 		// character does not exist or is a space
-		if (c < 0 || c >= HU_FONTSIZE || !tny_font[c])
+		if (!pat)
 		{
 			cx += FixedMul(spacewidth, dupx);
 			continue;
@@ -2897,22 +3178,25 @@ void V_DrawSmallThinStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char
 		if (charwidth)
 		{
 			w = FixedMul(charwidth, dupx);
-			center = w/2 - SHORT(tny_font[c]->width)*(dupx/4);
+			center = w/2 - SHORT(pat->width)*(dupx/4);
 		}
 		else
-			w = SHORT(tny_font[c]->width) * dupx / 2;
+			w = SHORT(pat->width) * dupx / 2;
 
 		if (cx > scrwidth)
 			break;
-		if (cx+left + w < 0) //left boundary check
+		else if (cx+left + w < 0) //left boundary check
 		{
 			cx += w;
 			continue;
 		}
 
-		colormap = V_GetStringColormap(charflags);
+		if (!emoji)
+			colormap = V_GetStringColormap(charflags);
+		else
+			colormap = NULL;
 
-		V_DrawFixedPatch(cx + center, cy, FRACUNIT/2, option, tny_font[c], colormap);
+		V_DrawFixedPatch(cx + center, cy, FRACUNIT/2, option, pat, colormap);
 
 		cx += w;
 	}
@@ -3019,29 +3303,57 @@ void V_DrawCreditString(fixed_t x, fixed_t y, INT32 option, const char *string)
 
 	for (;;)
 	{
-		c = *ch++;
+		patch_t *pat = NULL;
+		INT32 len = 1;
+		fixed_t scale = FRACUNIT;
+
+		c = *ch;
 		if (!c)
 			break;
-		if (c == '\n')
+
+		if (M_CharIsUnicode(c))
+		{
+			UINT32 ucs = M_UTF8ToUCS(ch);
+			len = M_chrlen(ch);
+
+			if (Unicode_IsCharacterEmoji(ucs))
+				pat = Unicode_GetEmoji(ucs);
+			else
+				pat = W_CachePatchName("MISSING", PU_PATCH);
+
+			w = (SHORT(pat->width) * FRACUNIT);
+			scale = FixedDiv(16*FRACUNIT, w);
+			w = FixedMul(w, scale);
+		}
+		else if (c == '\n')
 		{
 			cx = x;
 			cy += (12*dupy)<<FRACBITS;
+			ch += len;
 			continue;
 		}
 
-		c = toupper(c) - CRED_FONTSTART;
-		if (c < 0 || c >= CRED_FONTSIZE)
+		ch += len;
+
+		if (pat == NULL)
 		{
-			cx += (16*dupx)<<FRACBITS;
-			continue;
+			c = toupper(c) - CRED_FONTSTART;
+
+			if (c < 0 || c >= CRED_FONTSIZE)
+			{
+				cx += (16*dupx)<<FRACBITS;
+				continue;
+			}
+
+			pat = cred_font[c];
+			w = (SHORT(pat->width) * dupx)<<FRACBITS;
 		}
 
-		w = SHORT(cred_font[c]->width) * dupx;
 		if ((cx>>FRACBITS) > scrwidth)
 			continue;
 
-		V_DrawSciencePatch(cx, cy, option, cred_font[c], FRACUNIT);
-		cx += w<<FRACBITS;
+		V_DrawSciencePatch(cx, cy, option, pat, scale);
+		cx += w;
 	}
 }
 
@@ -3077,39 +3389,74 @@ static void V_DrawNameTagLine(INT32 x, INT32 y, INT32 option, fixed_t scale, UIN
 	if (option & V_NOSCALEPATCH)
 		scrwidth *= vid.dupx;
 
-	for (;;ch++)
+	for (;;)
 	{
-		if (!*ch)
+		boolean isUTF8 = false;
+		patch_t *pat = NULL;
+		fixed_t xs = scale, ys = scale;
+		INT32 len = 1;
+
+		c = *ch;
+		if (!c)
 			break;
-		if (*ch == '\n')
+
+		if (M_CharIsUnicode(c))
+		{
+			UINT32 ucs = M_UTF8ToUCS(ch);
+
+			if (Unicode_IsCharacterEmoji(ucs))
+				pat = Unicode_GetEmoji(ucs);
+			else
+				pat = W_CachePatchName("MISSING", PU_PATCH);
+
+			w = (SHORT(pat->width) * FRACUNIT);
+			xs = FixedMul(scale, FixedDiv(20*FRACUNIT, w));
+			ys = FixedMul(scale, FixedDiv(20*FRACUNIT, (SHORT(pat->height) * FRACUNIT)));
+			w = FixedMul(w, xs);
+
+			isUTF8 = true;
+			len = M_chrlen(ch);
+		}
+		else if (c == '\n')
 		{
 			cx = x<<FRACBITS;
-			cy += FixedMul((21*dupy)*FRACUNIT, scale);
+			cy += FixedMul((21*dupy)*FRACUNIT, xs);
+			ch += len;
 			continue;
 		}
 
-		c = toupper(*ch);
-		c -= NT_FONTSTART;
+		ch += len;
 
-		// character does not exist or is a space
-		if (c < 0 || c >= NT_FONTSIZE || !ntb_font[c] || !nto_font[c])
+		if (!isUTF8)
 		{
-			cx += FixedMul((4 * dupx)*FRACUNIT, scale);
-			continue;
-		}
+			c = toupper(c);
+			c -= NT_FONTSTART;
 
-		w = FixedMul((SHORT(ntb_font[c]->width)+2 * dupx) * FRACUNIT, scale);
+			// character does not exist or is a space
+			if (c < 0 || c >= NT_FONTSIZE || !ntb_font[c] || !nto_font[c])
+			{
+				cx += FixedMul((4 * dupx)*FRACUNIT, xs);
+				continue;
+			}
+
+			w = FixedMul((SHORT(ntb_font[c]->width)+2 * dupx) * FRACUNIT, xs);
+		}
 
 		if (FixedInt(cx) > scrwidth)
 			continue;
-		if (cx+(left*FRACUNIT) + w < 0) // left boundary check
+		else if (cx+(left*FRACUNIT) + w < 0) // left boundary check
 		{
 			cx += w;
 			continue;
 		}
 
-		V_DrawFixedPatch(cx, cy, scale, option, nto_font[c], outlinecolormap);
-		V_DrawFixedPatch(cx, cy, scale, option, ntb_font[c], basecolormap);
+		if (!isUTF8)
+		{
+			V_DrawStretchyFixedPatch(cx, cy, xs, ys, option, nto_font[c], outlinecolormap);
+			V_DrawStretchyFixedPatch(cx, cy, xs, ys, option, ntb_font[c], basecolormap);
+		}
+		else
+			V_DrawStretchyFixedPatch(cx, cy, xs, ys, option, pat, NULL);
 
 		cx += w;
 	}
@@ -3233,13 +3580,40 @@ INT32 V_NameTagWidth(const char *string)
 	if (!string)
 		return 0;
 
-	for (i = 0; i < strlen(string); i++)
+	for (i = 0; i < strlen(string);)
 	{
-		c = toupper(string[i]) - NT_FONTSTART;
-		if (c < 0 || c >= NT_FONTSIZE || !ntb_font[c] || !nto_font[c])
-			w += 4;
+		const char *ch = &string[i];
+		INT32 len = 1;
+
+		c = *ch;
+
+		if (M_CharIsUnicode(c))
+		{
+			UINT32 ucs = M_UTF8ToUCS(ch);
+			patch_t *pat = NULL;
+			fixed_t fw, scale;
+
+			if (Unicode_IsCharacterEmoji(ucs))
+				pat = Unicode_GetEmoji(ucs);
+			else
+				pat = W_CachePatchName("MISSING", PU_PATCH);
+
+			len = M_chrlen(ch);
+
+			fw = (SHORT(pat->width) * FRACUNIT);
+			scale = FixedDiv(4*FRACUNIT, fw);
+			w += FixedInt(FixedMul(fw, scale));
+		}
 		else
-			w += SHORT(ntb_font[c]->width)+2;
+		{
+			c = toupper(c) - NT_FONTSTART;
+			if (c < 0 || c >= NT_FONTSIZE || !ntb_font[c] || !nto_font[c])
+				w += 4;
+			else
+				w += SHORT(ntb_font[c]->width)+2;
+		}
+
+		i += len;
 	}
 
 	return w;
@@ -3256,13 +3630,40 @@ INT32 V_CreditStringWidth(const char *string)
 	if (!string)
 		return 0;
 
-	for (i = 0; i < strlen(string); i++)
+	for (i = 0; i < strlen(string);)
 	{
-		c = toupper(string[i]) - CRED_FONTSTART;
-		if (c < 0 || c >= CRED_FONTSIZE)
-			w += 16;
+		const char *ch = &string[i];
+		INT32 len = 1;
+
+		c = *ch;
+
+		if (M_CharIsUnicode(c))
+		{
+			UINT32 ucs = M_UTF8ToUCS(ch);
+			patch_t *pat = NULL;
+			fixed_t fw, scale;
+
+			if (Unicode_IsCharacterEmoji(ucs))
+				pat = Unicode_GetEmoji(ucs);
+			else
+				pat = W_CachePatchName("MISSING", PU_PATCH);
+
+			len = M_chrlen(ch);
+
+			fw = (SHORT(pat->width) * FRACUNIT);
+			scale = FixedDiv(4*FRACUNIT, fw);
+			w += FixedInt(FixedMul(fw, scale));
+		}
 		else
-			w += SHORT(cred_font[c]->width);
+		{
+			c = toupper(c) - CRED_FONTSTART;
+			if (c < 0 || c >= CRED_FONTSIZE)
+				w += 16;
+			else
+				w += SHORT(cred_font[c]->width);
+		}
+
+		i += len;
 	}
 
 	return w;
@@ -3275,7 +3676,9 @@ void V_DrawLevelTitle(INT32 x, INT32 y, INT32 option, const char *string)
 {
 	INT32 w, c, cx = x, cy = y, dupx, dupy, scrwidth, left = 0;
 	const char *ch = string;
+	patch_t *pat = NULL;
 	INT32 charflags = (option & V_CHARCOLORMASK);
+	fixed_t scale = FRACUNIT;
 	const UINT8 *colormap = NULL;
 
 	if (option & V_NOSCALESTART)
@@ -3295,43 +3698,80 @@ void V_DrawLevelTitle(INT32 x, INT32 y, INT32 option, const char *string)
 	if (option & V_NOSCALEPATCH)
 		scrwidth *= vid.dupx;
 
-	for (;;ch++)
+	for (;;)
 	{
-		if (!*ch)
+		patch_t **font = lt_font;
+		INT32 fontstart = LT_FONTSTART;
+		INT32 fontsize = LT_FONTSIZE;
+		boolean emoji = false;
+		INT32 len = 1;
+
+		c = *ch;
+		if (!c)
 			break;
-		if (*ch & 0x80) //color parsing -x 2.16.09
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			emoji = Unicode_IsCharacterEmoji(c);
+
+			if (!emoji)
+				c = (INT32)('?');
+			else
+				font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+		}
+		else if (HU_IsCharacterColorCode(c)) //color parsing -x 2.16.09
 		{
 			// manually set flags override color codes
 			if (!(option & V_CHARCOLORMASK))
-				charflags = ((*ch & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+				charflags = ((c & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+			ch += len;
 			continue;
 		}
-		if (*ch == '\n')
+		else if (c == '\n')
 		{
 			cx = x;
 			cy += 12*dupy;
+			ch += len;
 			continue;
 		}
 
-		c = *ch - LT_FONTSTART;
-		if (c < 0 || c >= LT_FONTSIZE || !lt_font[c])
+		ch += len;
+
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
+		if (!pat)
 		{
 			cx += 16*dupx;
 			continue;
 		}
 
-		w = SHORT(lt_font[c]->width) * dupx;
+		if (emoji)
+		{
+			fixed_t fw = (SHORT(pat->width) * FRACUNIT);
+			scale = FixedDiv(20*FRACUNIT, fw);
+			w = FixedInt(FixedMul(fw, scale)) * dupx;
+		}
+		else
+		{
+			w = SHORT(pat->width) * dupx;
+			scale = FRACUNIT;
+		}
 
 		if (cx > scrwidth)
 			continue;
-		if (cx+left + w < 0) //left boundary check
+		else if (cx+left + w < 0) //left boundary check
 		{
 			cx += w;
 			continue;
 		}
 
-		colormap = V_GetStringColormap(charflags);
-		V_DrawFixedPatch(cx<<FRACBITS, cy<<FRACBITS, FRACUNIT, option, lt_font[c], colormap);
+		if (!emoji)
+			colormap = V_GetStringColormap(charflags);
+		else
+			colormap = NULL;
+
+		V_DrawFixedPatch(cx<<FRACBITS, cy<<FRACBITS, scale, option, pat, colormap);
 
 		cx += w;
 	}
@@ -3344,15 +3784,43 @@ INT32 V_LevelNameWidth(const char *string)
 	INT32 c, w = 0;
 	size_t i;
 
-	for (i = 0; i < strlen(string); i++)
+	for (i = 0; i < strlen(string);)
 	{
-		if (string[i] & 0x80)
+		const char *ch = &string[i];
+		patch_t **font = lt_font;
+		patch_t *pat = NULL;
+		INT32 fontstart = LT_FONTSTART;
+		INT32 fontsize = LT_FONTSIZE;
+		boolean emoji = false;
+		INT32 len = 1;
+
+		c = *ch;
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			emoji = Unicode_IsCharacterEmoji(c);
+
+			if (!emoji)
+				c = (INT32)('?');
+			else
+				font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+		}
+		else if (HU_IsCharacterColorCode(c))
+		{
+			i += len;
 			continue;
-		c = string[i] - LT_FONTSTART;
-		if (c < 0 || c >= LT_FONTSIZE || !lt_font[c])
+		}
+
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
+
+		if (!pat)
 			w += 16;
 		else
-			w += SHORT(lt_font[c]->width);
+			w += SHORT(pat->width);
+
+		i += len;
 	}
 
 	return w;
@@ -3365,14 +3833,38 @@ INT32 V_LevelNameHeight(const char *string)
 	INT32 c, w = 0;
 	size_t i;
 
-	for (i = 0; i < strlen(string); i++)
+	for (i = 0; i < strlen(string);)
 	{
-		c = string[i] - LT_FONTSTART;
-		if (c < 0 || c >= LT_FONTSIZE || !lt_font[c])
+		const char *ch = &string[i];
+		patch_t **font = lt_font;
+		patch_t *pat = NULL;
+		INT32 fontstart = LT_FONTSTART;
+		INT32 fontsize = LT_FONTSIZE;
+		boolean emoji = false;
+		INT32 len = 1;
+
+		c = *ch;
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			emoji = Unicode_IsCharacterEmoji(c);
+
+			if (!emoji)
+				c = (INT32)('?');
+			else
+				font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+		}
+
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
+		i += len;
+
+		if (!pat)
 			continue;
 
-		if (SHORT(lt_font[c]->height) > w)
-			w = SHORT(lt_font[c]->height);
+		if (SHORT(pat->height) > w)
+			w = SHORT(pat->height);
 	}
 
 	return w;
@@ -3419,15 +3911,41 @@ INT32 V_StringWidth(const char *string, INT32 option)
 			break;
 	}
 
-	for (i = 0; i < strlen(string); i++)
+	for (i = 0; i < strlen(string);)
 	{
-		if (string[i] & 0x80)
+		const char *ch = &string[i];
+		patch_t **font = hu_font;
+		INT32 fontstart = HU_FONTSTART;
+		INT32 fontsize = HU_FONTSIZE;
+		boolean emoji = false;
+		patch_t *pat = NULL;
+		INT32 len = 1;
+
+		c = *ch;
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			font = HU_GetFont(ch, &fontstart, &fontsize);
+			emoji = Unicode_IsCharacterEmoji(c);
+		}
+		else if (HU_IsCharacterColorCode(c))
+		{
+			i += len;
 			continue;
-		c = toupper(string[i]) - HU_FONTSTART;
-		if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
+		}
+
+		if (!emoji)
+			c = toupper(c);
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
+
+		if (!pat)
 			w += spacewidth;
 		else
-			w += (charwidth ? charwidth : SHORT(hu_font[c]->width));
+			w += (charwidth ? charwidth : SHORT(pat->width));
+
+		i += len;
 	}
 
 	if (option & (V_NOSCALESTART|V_NOSCALEPATCH))
@@ -3459,15 +3977,41 @@ INT32 V_SmallStringWidth(const char *string, INT32 option)
 			break;
 	}
 
-	for (i = 0; i < strlen(string); i++)
+	for (i = 0; i < strlen(string);)
 	{
-		if (string[i] & 0x80)
+		const char *ch = &string[i];
+		patch_t **font = hu_font;
+		INT32 fontstart = HU_FONTSTART;
+		INT32 fontsize = HU_FONTSIZE;
+		boolean emoji = false;
+		patch_t *pat = NULL;
+		INT32 len = 1;
+
+		c = *ch;
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			font = HU_GetFont(ch, &fontstart, &fontsize);
+			emoji = Unicode_IsCharacterEmoji(c);
+		}
+		else if (HU_IsCharacterColorCode(c))
+		{
+			i += len;
 			continue;
-		c = toupper(string[i]) - HU_FONTSTART;
-		if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
+		}
+
+		if (!emoji)
+			c = toupper(c);
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
+
+		if (!pat)
 			w += spacewidth;
 		else
-			w += (charwidth ? charwidth : SHORT(hu_font[c]->width)/2);
+			w += (charwidth ? charwidth : SHORT(pat->width)/2);
+
+		i += len;
 	}
 
 	return w;
@@ -3496,15 +4040,41 @@ INT32 V_ThinStringWidth(const char *string, INT32 option)
 			break;
 	}
 
-	for (i = 0; i < strlen(string); i++)
+	for (i = 0; i < strlen(string);)
 	{
-		if (string[i] & 0x80)
+		const char *ch = &string[i];
+		patch_t **font = tny_font;
+		INT32 fontstart = HU_FONTSTART;
+		INT32 fontsize = HU_FONTSIZE;
+		boolean emoji = false;
+		patch_t *pat = NULL;
+		INT32 len = 1;
+
+		c = *ch;
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+			font = HU_GetFont(ch, &fontstart, &fontsize);
+			emoji = Unicode_IsCharacterEmoji(c);
+		}
+		else if (HU_IsCharacterColorCode(c))
+		{
+			i += len;
 			continue;
-		c = toupper(string[i]) - HU_FONTSTART;
-		if (c < 0 || c >= HU_FONTSIZE || !tny_font[c])
+		}
+
+		if (!emoji)
+			c = toupper(c);
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
+
+		if (!pat)
 			w += spacewidth;
 		else
-			w += (charwidth ? charwidth : SHORT(tny_font[c]->width));
+			w += (charwidth ? charwidth : SHORT(pat->width));
+
+		i += len;
 	}
 
 	return w;

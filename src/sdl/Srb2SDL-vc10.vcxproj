@@ -300,6 +300,7 @@
     <ClInclude Include="..\st_stuff.h" />
     <ClInclude Include="..\s_sound.h" />
     <ClInclude Include="..\tables.h" />
+    <ClInclude Include="..\utf8.h" />
     <ClInclude Include="..\v_video.h" />
     <ClInclude Include="..\w_wad.h" />
     <ClInclude Include="..\y_inter.h" />
@@ -483,6 +484,7 @@
     <ClCompile Include="..\t_tan2a.c">
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="..\utf8.c" />
     <ClCompile Include="..\v_video.c" />
     <ClCompile Include="..\win32\win_dbg.c" />
     <ClCompile Include="..\w_wad.c" />

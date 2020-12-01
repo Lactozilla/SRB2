@@ -453,6 +453,9 @@
     <ClCompile Include="..\string.c">
       <Filter>M_Misc</Filter>
     </ClCompile>
+    <ClCompile Include="..\utf8.c">
+      <Filter>M_Misc</Filter>
+    </ClCompile>
     <ClCompile Include="..\hardware\hw_md2load.c">
       <Filter>Hw_Hardware</Filter>
     </ClCompile>
@@ -888,6 +891,9 @@
     <ClInclude Include="..\z_zone.h">
       <Filter>D_Doom</Filter>
     </ClInclude>
+    <ClCompile Include="..\utf8.h">
+      <Filter>M_Misc</Filter>
+    </ClCompile>
     <ClInclude Include="..\fastcmp.h">
       <Filter>O_Other</Filter>
     </ClInclude>

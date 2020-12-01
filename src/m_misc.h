@@ -117,6 +117,28 @@ trailing zeros, or "" if the fractional part is zero.
 */
 const char * M_Ftrim (double);
 
+// String manipulation
+int M_strlen(const char *s);
+int M_chrlen(const char *c);
+
+void M_StringInc(char *s, int *i);
+void M_StringDec(char *s, int *i);
+
+void M_StringInc_size_t(char *s, size_t *i);
+void M_StringDec_size_t(char *s, size_t *i);
+
+void M_StringIncLen(char *s, int *i, int len);
+void M_StringDecLen(char *s, int *i, int len);
+
+void M_StringIncLen_size_t(char *s, size_t *i, int len);
+void M_StringDecLen_size_t(char *s, size_t *i, int len);
+
+int M_StringBackspace(char *s);
+
+// Unicode string manipulation
+boolean M_CharIsUnicode(char c);
+UINT32 M_UTF8ToUCS(const char *c);
+
 // counting bits, for weapon ammo code, usually
 FUNCMATH UINT8 M_CountBits(UINT32 num, UINT8 size);
 

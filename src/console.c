@@ -34,6 +34,7 @@
 #include "m_menu.h"
 #include "filesrch.h"
 #include "m_misc.h"
+#include "utf8.h"
 
 #ifdef _WINDOWS
 #include "win32/win_main.h"
@@ -804,6 +805,7 @@ static void CON_InputAddString(const char *c)
 
 static void CON_InputDelSelection(void)
 {
+	char *line = (char *)(&inputlines[inputline]);
 	size_t start, end, len;
 
 	Lock_state();
@@ -821,11 +823,13 @@ static void CON_InputDelSelection(void)
 	len = (end - start);
 
 	if (end != input_len)
-		memmove(&inputlines[inputline][start], &inputlines[inputline][end], input_len-end);
-	memset(&inputlines[inputline][input_len - len], 0, len);
+		memmove(&line[start], &line[end], input_len-end);
 
 	input_len -= len;
 	input_sel = input_cur = start;
+
+	// Clear the rest of the line.
+	memset(line + input_len, 0x00, (line + CON_MAXPROMPTCHARS) - (line + input_len));
 
 	Unlock_state();
 }
@@ -846,17 +850,36 @@ static void CON_InputAddChar(char c)
 	Unlock_state();
 }
 
+static void CON_InputAddUTF8Char(char *c)
+{
+	int i = 0, len = M_chrlen(c);
+
+	if (input_len + (len - 1) >= CON_MAXPROMPTCHARS-1)
+		return;
+
+	for (; i < len; i++)
+		CON_InputAddChar(c[i]);
+}
+
 static void CON_InputDelChar(void)
 {
+	char *line = (char *)(&inputlines[inputline]);
+	int cur = (int)input_cur, len;
 	if (!input_cur)
 		return;
 
 	Lock_state();
 
+	M_StringDec(line, &cur);
+	len = ((int)input_cur - cur);
+
 	if (input_cur != input_len)
-		memmove(&inputlines[inputline][input_cur-1], &inputlines[inputline][input_cur], input_len-input_cur);
-	inputlines[inputline][--input_len] = 0;
-	input_sel = --input_cur;
+		memmove(&line[input_cur-len], &line[input_cur], input_len-input_cur);
+	input_len -= len;
+	input_sel = input_cur = (size_t)cur;
+
+	// Clear the rest of the line.
+	memset(line + input_len, 0x00, (line + CON_MAXPROMPTCHARS) - (line + input_len));
 
 	Unlock_state();
 }
@@ -892,7 +915,7 @@ boolean CON_Responder(event_t *ev)
 		return false;
 
 	// let go keyup events, don't eat them
-	if (ev->type != ev_keydown && ev->type != ev_console)
+	if (ev->type != ev_keydown && ev->type != ev_console && ev->type != ev_textinput)
 	{
 		if (ev->data1 == gamecontrol[gc_console][0] || ev->data1 == gamecontrol[gc_console][1])
 			consdown = false;
@@ -902,7 +925,7 @@ boolean CON_Responder(event_t *ev)
 	key = ev->data1;
 
 	// check for console toggle key
-	if (ev->type != ev_console)
+	if (ev->type != ev_console && ev->type != ev_textinput)
 	{
 		if (modeattacking || metalrecording || marathonmode)
 			return false;
@@ -936,6 +959,13 @@ boolean CON_Responder(event_t *ev)
 		}
 	}
 
+	if (ev->type == ev_textinput)
+	{
+		if (!consoleready)
+			return false;
+		goto textinput;
+	}
+
 	// Always eat ctrl/shift/alt if console open, so the menu doesn't get ideas
 	if (key == KEY_LSHIFT || key == KEY_RSHIFT
 	 || key == KEY_LCTRL || key == KEY_RCTRL
@@ -949,7 +979,7 @@ boolean CON_Responder(event_t *ev)
 			if (ctrldown)
 				input_cur = M_JumpWordReverse(inputlines[inputline], input_cur);
 			else
-				--input_cur;
+				M_StringDec_size_t(inputlines[inputline], &input_cur);
 		}
 		if (!shiftdown)
 			input_sel = input_cur;
@@ -962,7 +992,7 @@ boolean CON_Responder(event_t *ev)
 			if (ctrldown)
 				input_cur += M_JumpWord(&inputlines[inputline][input_cur]);
 			else
-				++input_cur;
+				M_StringInc_size_t(inputlines[inputline], &input_cur);
 		}
 		if (!shiftdown)
 			input_sel = input_cur;
@@ -1293,9 +1323,14 @@ boolean CON_Responder(event_t *ev)
 	if (key >= 'A' && key <= 'Z' && !(shiftdown ^ capslock)) //this is only really necessary for dedicated servers
 		key = key + 'a' - 'A';
 
+textinput:
 	if (input_sel != input_cur)
 		CON_InputDelSelection();
-	CON_InputAddChar(key);
+
+	if (ev->type == ev_textinput)
+		CON_InputAddUTF8Char(ev->text);
+	else
+		CON_InputAddChar(key);
 
 	return true;
 }
@@ -1320,6 +1355,7 @@ static void CON_Linefeed(void)
 // Outputs text into the console text buffer
 static void CON_Print(char *msg)
 {
+	unsigned char c;
 	size_t l;
 	INT32 controlchars = 0; // for color changing
 	char color = '\x80';  // keep color across lines
@@ -1337,7 +1373,8 @@ static void CON_Print(char *msg)
 
 	Lock_state();
 
-	if (!(*msg & 0x80))
+	c = (unsigned)(*msg);
+	if (!HU_IsCharacterControlCode(c))
 	{
 		con_line[con_cx++] = '\x80';
 		controlchars = 1;
@@ -1348,26 +1385,28 @@ static void CON_Print(char *msg)
 		// skip non-printable characters and white spaces
 		while (*msg && *msg <= ' ')
 		{
-			if (*msg & 0x80)
+			c = (unsigned)(*msg);
+
+			if (HU_IsCharacterControlCode(c))
 			{
 				color = con_line[con_cx++] = *(msg++);
 				controlchars++;
 				continue;
 			}
-			else if (*msg == '\r') // carriage return
+			else if (c == '\r') // carriage return
 			{
 				con_cy--;
 				CON_Linefeed();
 				color = '\x80';
 				controlchars = 0;
 			}
-			else if (*msg == '\n') // linefeed
+			else if (c == '\n') // linefeed
 			{
 				CON_Linefeed();
 				con_line[con_cx++] = color;
 				controlchars = 1;
 			}
-			else if (*msg == ' ') // space
+			else if (c == ' ') // space
 			{
 				con_line[con_cx++] = ' ';
 				if (con_cx - controlchars >= con_width-11)
@@ -1377,7 +1416,7 @@ static void CON_Print(char *msg)
 					controlchars = 1;
 				}
 			}
-			else if (*msg == '\t')
+			else if (c == '\t')
 			{
 				// adds tab spaces for nice layout in console
 
@@ -1396,14 +1435,14 @@ static void CON_Print(char *msg)
 			msg++;
 		}
 
-		if (*msg == '\0')
+		if (c == '\0')
 		{
 			Unlock_state();
 			return;
 		}
 
 		// printable character
-		for (l = 0; l < (con_width-11) && msg[l] > ' '; l++)
+		for (l = 0; l < (con_width-11) && (unsigned)(msg[l]) > ' '; l++)
 			;
 
 		// word wrap
@@ -1567,17 +1606,19 @@ void CONS_Error(const char *msg)
 static void CON_DrawInput(void)
 {
 	INT32 charwidth = (INT32)con_scalefactor << 3;
-	const char *p = inputlines[inputline];
-	size_t c, clen, cend;
+	char *p = inputlines[inputline];
+	size_t c, clen, cend, base;
 	UINT8 lellip = 0, rellip = 0;
 	INT32 x, y, i;
+	int start, end = 0;
 
 	y = con_curlines - 12 * con_scalefactor;
 	x = charwidth*2;
 
-	clen = con_width-13;
+	clen = base = con_width-13;
+	M_StringIncLen(p, &end, clen);
 
-	if (input_len <= clen)
+	if ((int)input_len <= end)
 	{
 		c = 0;
 		clen = input_len;
@@ -1586,7 +1627,10 @@ static void CON_DrawInput(void)
 	{
 		clen -= 2; // There will always be some extra truncation -- but where is what we'll find out
 
-		if (input_cur <= clen/2)
+		end = 0;
+		M_StringIncLen(p, &end, (clen/2));
+
+		if ((int)input_cur <= end)
 		{
 			// Close enough to right edge to show all
 			c = 0;
@@ -1597,15 +1641,23 @@ static void CON_DrawInput(void)
 		{
 			// Cursor in the middle (or right side) of input
 			// Move over for the ellipsis
-			c = input_cur - (clen/2) + 2;
+			start = input_cur;
+
+			M_StringDecLen(p, &start, (clen/2));
+			M_StringIncLen(p, &start, 2);
+
 			x += charwidth*2;
 			lellip = 1;
 
-			if (c + clen >= input_len)
+			end = start;
+			M_StringIncLen(p, &end, clen);
+
+			if (end >= (int)input_len)
 			{
 				// Cursor in the right side of input
 				// We were too far over, so move back
-				c = input_len - clen;
+				start = input_len;
+				M_StringDecLen(p, &start, (base - 2));
 			}
 			else
 			{
@@ -1613,6 +1665,8 @@ static void CON_DrawInput(void)
 				clen -= 2;
 				rellip = 1;
 			}
+
+			c = (size_t)start;
 		}
 	}
 
@@ -1627,21 +1681,29 @@ static void CON_DrawInput(void)
 	else
 		V_DrawCharacter(x-charwidth, y, CON_PROMPTCHAR | cv_constextsize.value | V_GRAYMAP | V_NOSCALESTART, true);
 
-	for (cend = c + clen; c < cend; ++c, x += charwidth)
+	end = c;
+	M_StringIncLen(p, &end, (int)clen);
+	cend = (size_t)end;
+
+	for (; c < cend; x += charwidth)
 	{
 		if ((input_sel > c && input_cur <= c) || (input_sel <= c && input_cur > c))
 		{
 			V_DrawFill(x, y, charwidth, (10 * con_scalefactor), 77 | V_NOSCALESTART);
-			V_DrawCharacter(x, y, p[c] | cv_constextsize.value | V_YELLOWMAP | V_NOSCALESTART, true);
+			V_DrawUnicodeCharacter(x, y, p + c, cv_constextsize.value | V_YELLOWMAP | V_NOSCALESTART, true);
 		}
 		else
-			V_DrawCharacter(x, y, p[c] | cv_constextsize.value | V_NOSCALESTART, true);
+			V_DrawUnicodeCharacter(x, y, p + c, cv_constextsize.value | V_NOSCALESTART, true);
 
 		if (c == input_cur && con_tick >= 4)
 			V_DrawCharacter(x, y + (con_scalefactor*2), '_' | cv_constextsize.value | V_NOSCALESTART, true);
+
+		c += M_chrlen(p + c);
 	}
+
 	if (cend == input_cur && con_tick >= 4)
 		V_DrawCharacter(x, y + (con_scalefactor*2), '_' | cv_constextsize.value | V_NOSCALESTART, true);
+
 	if (rellip)
 	{
 		if (input_sel > cend)
@@ -1693,11 +1755,10 @@ static void CON_DrawHudlines(void)
 			else
 			{
 				//charwidth = SHORT(hu_font['A'-HU_FONTSTART]->width) * con_scalefactor;
-				V_DrawCharacter(x, y, (INT32)(*p) | charflags | cv_constextsize.value | V_NOSCALESTART, true);
+				V_DrawUnicodeCharacter(x, y, (char *)p, charflags | cv_constextsize.value | V_NOSCALESTART, true);
 			}
 		}
 
-		//V_DrawCharacter(x, y, (p[c]&0xff) | cv_constextsize.value | V_NOSCALESTART, true);
 		y += charheight;
 	}
 
@@ -1799,17 +1860,29 @@ static void CON_DrawConsole(void)
 	{
 		INT32 x;
 		size_t c;
+		int len;
 
 		p = (UINT8 *)&con_buffer[((i > 0 ? i : 0)%con_totallines)*con_width];
 
-		for (c = 0, x = charwidth; c < con_width; c++, x += charwidth, p++)
+		for (c = 0, x = charwidth; c < con_width; x += charwidth)
 		{
-			while (*p & 0x80)
+			char *chr = (char *)p;
+			unsigned char uchr = ((unsigned)(*chr) & 0xFF);
+
+			while (HU_IsCharacterColorCode(uchr))
 			{
-				charflags = (*p & 0x7f) << V_CHARCOLORSHIFT;
+				charflags = (uchr & 0x7f) << V_CHARCOLORSHIFT;
+
 				p++;
+				chr = (char *)p;
+				uchr = ((unsigned)(*chr) & 0xFF);
 			}
-			V_DrawCharacter(x, y, (INT32)(*p) | charflags | cv_constextsize.value | V_NOSCALESTART, true);
+
+			V_DrawUnicodeCharacter(x, y, chr, charflags | cv_constextsize.value | V_NOSCALESTART, true);
+
+			len = M_chrlen(chr);
+			p += len;
+			c += len;
 		}
 	}
 

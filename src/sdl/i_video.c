@@ -83,6 +83,7 @@
 #include "hwsym_sdl.h"
 #include "ogl_sdl.h"
 #endif
+#include "../utf8.h"
 
 // maximum number of windowed modes (see windowedModes[][])
 #define MAXWINMODES (18)
@@ -840,11 +841,8 @@ static void Impl_HandleTextInputEvent(char *text)
 	|| HU_ChatActive())) // chat input
 		return;
 
-	if (text[0] < 32)
-		return;
-
-	event.data1 = text[0];
-	event.type = ev_keydown;
+	strcpy(event.text, text);
+	event.type = ev_textinput;
 	D_PostEvent(&event);
 }
 #endif

@@ -59,6 +59,7 @@
 #include "st_stuff.h"
 #include "i_sound.h"
 #include "fastcmp.h"
+#include "utf8.h"
 
 #include "i_joy.h" // for joystick menu controls
 
@@ -388,7 +389,7 @@ static void M_DrawSetupMultiPlayerMenu(void);
 // Handling functions
 static boolean M_ExitPandorasBox(void);
 static boolean M_QuitMultiPlayerMenu(void);
-static void M_HandleAddons(INT32 choice);
+static void M_HandleAddons(event_t *ev, INT32 choice);
 static void M_HandleLevelPlatter(INT32 choice);
 static void M_HandleSoundTest(INT32 choice);
 static void M_HandleImageDef(INT32 choice);
@@ -397,9 +398,9 @@ static void M_HandleLevelStats(INT32 choice);
 static void M_HandlePlaystyleMenu(INT32 choice);
 #ifndef NONET
 static boolean M_CancelConnect(void);
-static void M_HandleConnectIP(INT32 choice);
+static void M_HandleConnectIP(event_t *ev, INT32 choice);
 #endif
-static void M_HandleSetupMultiPlayer(INT32 choice);
+static void M_HandleSetupMultiPlayer(event_t *ev, INT32 choice);
 static void M_HandleVideoMode(INT32 choice);
 
 static void M_ResetCvars(void);
@@ -503,7 +504,7 @@ static menuitem_t MainMenu[] =
 	{IT_STRING|IT_CALL,    NULL, "Multiplayer", M_StartSplitServerMenu,  84},
 #endif
 	{IT_STRING|IT_CALL,    NULL, "Extras",      M_SecretsMenu,           92},
-	{IT_CALL   |IT_STRING, NULL, "Addons",      M_Addons,               100},
+	{IT_STRING|IT_CALL,    NULL, "Addons",      M_Addons,               100},
 	{IT_STRING|IT_CALL,    NULL, "Options",     M_Options,              108},
 	{IT_STRING|IT_CALL,    NULL, "Quit  Game",  M_QuitSRB2,             116},
 };
@@ -520,7 +521,7 @@ typedef enum
 
 static menuitem_t MISC_AddonsMenu[] =
 {
-	{IT_KEYHANDLER | IT_NOTHING, NULL, "", M_HandleAddons, 0},     // dummy menuitem for the control func
+	{IT_EVENTHANDLER | IT_NOTHING, NULL, "", M_HandleAddons, 0},     // dummy menuitem for the control func
 };
 
 // ---------------------------------
@@ -965,14 +966,14 @@ static menuitem_t MP_SplitServerMenu[] =
 static menuitem_t MP_MainMenu[] =
 {
 	{IT_HEADER, NULL, "Join a game", NULL, 0},
-	{IT_STRING|IT_CALL,       NULL, "Server browser...",     M_ConnectMenuModChecks,          12},
-	{IT_STRING|IT_KEYHANDLER, NULL, "Specify IPv4 address:", M_HandleConnectIP,      22},
+	{IT_STRING|IT_CALL,         NULL, "Server browser...",     M_ConnectMenuModChecks, 12},
+	{IT_STRING|IT_EVENTHANDLER, NULL, "Specify IPv4 address:", M_HandleConnectIP,      22},
 	{IT_HEADER, NULL, "Host a game", NULL, 54},
-	{IT_STRING|IT_CALL,       NULL, "Internet/LAN...",       M_StartServerMenu,      66},
-	{IT_STRING|IT_CALL,       NULL, "Splitscreen...",        M_StartSplitServerMenu, 76},
+	{IT_STRING|IT_CALL,         NULL, "Internet/LAN...",       M_StartServerMenu,      66},
+	{IT_STRING|IT_CALL,         NULL, "Splitscreen...",        M_StartSplitServerMenu, 76},
 	{IT_HEADER, NULL, "Player setup", NULL, 94},
-	{IT_STRING|IT_CALL,       NULL, "Player 1...",           M_SetupMultiPlayer,    106},
-	{IT_STRING|IT_CALL,       NULL, "Player 2... ",          M_SetupMultiPlayer2,   116},
+	{IT_STRING|IT_CALL,         NULL, "Player 1...",           M_SetupMultiPlayer,    106},
+	{IT_STRING|IT_CALL,         NULL, "Player 2... ",          M_SetupMultiPlayer2,   116},
 };
 
 static menuitem_t MP_ServerMenu[] =
@@ -1052,10 +1053,10 @@ menuitem_t MP_RoomMenu[] =
 
 static menuitem_t MP_PlayerSetupMenu[] =
 {
-	{IT_KEYHANDLER, NULL, "", M_HandleSetupMultiPlayer, 0}, // name
-	{IT_KEYHANDLER, NULL, "", M_HandleSetupMultiPlayer, 0}, // skin
-	{IT_KEYHANDLER, NULL, "", M_HandleSetupMultiPlayer, 0}, // colour
-	{IT_KEYHANDLER, NULL, "", M_HandleSetupMultiPlayer, 0}, // default
+	{IT_EVENTHANDLER, NULL, "", M_HandleSetupMultiPlayer, 0}, // name
+	{IT_EVENTHANDLER, NULL, "", M_HandleSetupMultiPlayer, 0}, // skin
+	{IT_EVENTHANDLER, NULL, "", M_HandleSetupMultiPlayer, 0}, // colour
+	{IT_EVENTHANDLER, NULL, "", M_HandleSetupMultiPlayer, 0}, // default
 };
 
 // ------------------------------------
@@ -3066,6 +3067,32 @@ static void M_GoBack(INT32 choice)
 		M_ClearMenus(true);
 }
 
+static void M_HandleTextField(char *buf, size_t bufsize, consvar_t *cv, char *text)
+{
+	int i = 0, len = M_chrlen(text);
+	size_t buflen;
+
+	if (cv)
+		buflen = strlen(cv->string);
+	else
+		buflen = strlen(buf);
+
+	if (buflen+len > bufsize)
+		return;
+
+	if (cv)
+		M_Memcpy(buf, cv->string, buflen);
+
+	for (; i < len; i++)
+	{
+		buf[buflen+i] = text[i];
+		buf[buflen+i+1] = 0;
+	}
+
+	if (cv)
+		CV_Set(cv, buf);
+}
+
 static void M_ChangeCvar(INT32 choice)
 {
 	consvar_t *cv = (consvar_t *)currentMenu->menuitems[itemOn].itemaction;
@@ -3104,11 +3131,17 @@ static void M_ChangeCvar(INT32 choice)
 		CV_AddValue(cv,choice);
 }
 
-static boolean M_ChangeStringCvar(INT32 choice)
+static boolean M_ChangeStringCvar(event_t *ev, INT32 choice)
 {
 	consvar_t *cv = (consvar_t *)currentMenu->menuitems[itemOn].itemaction;
 	char buf[MAXSTRINGLENGTH];
 	size_t len;
+
+	if (ev->type == ev_textinput)
+	{
+		M_HandleTextField(buf, MAXSTRINGLENGTH - 1, cv, ev->text);
+		return true;
+	}
 
 #ifdef TEXTINPUTEVENTS
 	if (!cv_keyboardlocale.value)
@@ -3125,7 +3158,8 @@ static boolean M_ChangeStringCvar(INT32 choice)
 			if (len > 0)
 			{
 				M_Memcpy(buf, cv->string, len);
-				buf[len-1] = 0;
+				buf[len] = 0;
+				M_StringBackspace(buf);
 				CV_Set(cv, buf);
 			}
 			return true;
@@ -3207,9 +3241,9 @@ boolean M_TextInput(void)
 
 	if (item->itemaction)
 	{
-		if ((item->status & IT_TYPE) == IT_KEYHANDLER)
+		if ((item->status & IT_TYPE) == IT_EVENTHANDLER)
 		{
-			void (*action)(INT32 choice) = item->itemaction;
+			void (*action)(event_t *ev, INT32 choice) = item->itemaction;
 			if (action == M_HandleAddons)
 				return true;
 			else if (action == M_HandleSetupMultiPlayer)
@@ -3235,7 +3269,11 @@ boolean M_Responder(event_t *ev)
 	static INT32 pjoyx = 0, pjoyy = 0;
 	static INT32 pmousex = 0, pmousey = 0;
 	static INT32 lastx = 0, lasty = 0;
-	void (*routine)(INT32 choice); // for some casting problem
+
+	// for some casting problem
+	void *action; // itemaction_t
+	void (*routine)(INT32 choice) = NULL;
+	void (*eventhandler)(event_t *ev, INT32 choice) = NULL;
 
 	if (dedicated || (demoplayback && titledemo)
 	|| gamestate == GS_INTRO || gamestate == GS_ENDING || gamestate == GS_CUTSCENE
@@ -3365,106 +3403,126 @@ boolean M_Responder(event_t *ev)
 				pmousex = lastx += 30;
 			}
 		}
-		else if (ev->type == ev_keyup) // Preserve event for other responders
+		else if (ev->type == ev_keyup)
 			keydown = 0;
 	}
 	else if (ev->type == ev_keydown) // Preserve event for other responders
 		ch = ev->data1;
 
-	if (ch == -1)
-		return false;
-	else if (ch == gamecontrol[gc_systemmenu][0] || ch == gamecontrol[gc_systemmenu][1]) // allow remappable ESC key
-		ch = KEY_ESCAPE;
-
-	// F-Keys
-	if (!menuactive)
+	if (ev->type != ev_textinput)
 	{
-		noFurtherInput = true;
-		switch (ch)
+		if (ch == -1)
+			return false;
+		else if (ch == gamecontrol[gc_systemmenu][0] || ch == gamecontrol[gc_systemmenu][1]) // allow remappable ESC key
+			ch = KEY_ESCAPE;
+
+		// F-Keys
+		if (!menuactive)
 		{
-			case KEY_F1: // Help key
-				Command_Manual_f();
-				return true;
-
-			case KEY_F2: // Empty
-				return true;
-
-			case KEY_F3: // Toggle HUD
-				CV_SetValue(&cv_showhud, !cv_showhud.value);
-				return true;
-
-			case KEY_F4: // Sound Volume
-				if (modeattacking)
+			noFurtherInput = true;
+			switch (ch)
+			{
+				case KEY_F1: // Help key
+					Command_Manual_f();
 					return true;
-				M_StartControlPanel();
-				M_Options(0);
-				// Uncomment the below if you want the menu to reset to the top each time like before. M_SetupNextMenu will fix it automatically.
-				//OP_SoundOptionsDef.lastOn = 0;
-				M_SetupNextMenu(&OP_SoundOptionsDef);
-				return true;
 
-			case KEY_F5: // Video Mode
-				if (modeattacking)
+				case KEY_F2: // Empty
 					return true;
-				M_StartControlPanel();
-				M_Options(0);
-				M_VideoModeMenu(0);
-				return true;
 
-			case KEY_F6: // Empty
-				return true;
-
-			case KEY_F7: // Options
-				if (modeattacking)
+				case KEY_F3: // Toggle HUD
+					CV_SetValue(&cv_showhud, !cv_showhud.value);
 					return true;
-				M_StartControlPanel();
-				M_Options(0);
-				M_SetupNextMenu(&OP_MainDef);
-				return true;
 
-			// Screenshots on F8 now handled elsewhere
-			// Same with Moviemode on F9
-
-			case KEY_F10: // Quit SRB2
-				M_QuitSRB2(0);
-				return true;
-
-			case KEY_F11: // Gamma Level
-				CV_AddValue(&cv_globalgamma, 1);
-				return true;
-
-			// Spymode on F12 handled in game logic
-
-			case KEY_ESCAPE: // Pop up menu
-				if (chat_on)
-					HU_clearChatChars();
-				else
+				case KEY_F4: // Sound Volume
+					if (modeattacking)
+						return true;
 					M_StartControlPanel();
-				return true;
-		}
-		noFurtherInput = false; // turns out we didn't care
-		return false;
-	}
+					M_Options(0);
+					// Uncomment the below if you want the menu to reset to the top each time like before. M_SetupNextMenu will fix it automatically.
+					//OP_SoundOptionsDef.lastOn = 0;
+					M_SetupNextMenu(&OP_SoundOptionsDef);
+					return true;
 
-	routine = currentMenu->menuitems[itemOn].itemaction;
+				case KEY_F5: // Video Mode
+					if (modeattacking)
+						return true;
+					M_StartControlPanel();
+					M_Options(0);
+					M_VideoModeMenu(0);
+					return true;
+
+				case KEY_F6: // Empty
+					return true;
+
+				case KEY_F7: // Options
+					if (modeattacking)
+						return true;
+					M_StartControlPanel();
+					M_Options(0);
+					M_SetupNextMenu(&OP_MainDef);
+					return true;
+
+				// Screenshots on F8 now handled elsewhere
+				// Same with Moviemode on F9
+
+				case KEY_F10: // Quit SRB2
+					M_QuitSRB2(0);
+					return true;
+
+				case KEY_F11: // Gamma Level
+					CV_AddValue(&cv_globalgamma, 1);
+					return true;
+
+				// Spymode on F12 handled in game logic
+
+				case KEY_ESCAPE: // Pop up menu
+					if (chat_on)
+						HU_clearChatChars();
+					else
+						M_StartControlPanel();
+					return true;
+			}
+			noFurtherInput = false; // turns out we didn't care
+			return false;
+		}
+	}
+	else if (!menuactive)
+		return false;
+
+	action = currentMenu->menuitems[itemOn].itemaction;
 
 	// Handle menuitems which need a specific key handling
-	if (routine && (currentMenu->menuitems[itemOn].status & IT_TYPE) == IT_KEYHANDLER)
+	if (action)
 	{
-#ifdef TEXTINPUTEVENTS
-		if (!(cv_keyboardlocale.value && M_TextInput()))
-#endif
-		{
-			if (shiftdown && ch >= 32 && ch <= 127)
-				ch = shiftxform[ch];
-		}
+		UINT16 type = (currentMenu->menuitems[itemOn].status & IT_TYPE);
 
-		routine(ch);
-		return true;
+		if (type == IT_EVENTHANDLER)
+		{
+			eventhandler = action;
+			eventhandler(ev, ch);
+			return true;
+		}
+		else if (type == IT_KEYHANDLER)
+		{
+			routine = action;
+
+#ifdef TEXTINPUTEVENTS
+			if (!(cv_keyboardlocale.value && M_TextInput()))
+#endif
+			{
+				if (shiftdown && ch >= 32 && ch <= 127)
+					ch = shiftxform[ch];
+			}
+
+			routine(ch);
+			return true;
+		}
 	}
 
 	if (currentMenu->menuitems[itemOn].status == IT_MSGHANDLER)
 	{
+		routine = action;
+
 		if (currentMenu->menuitems[itemOn].alphaKey != MM_EVENTHANDLER)
 		{
 			if (ch == ' ' || ch == 'n' || ch == 'y' || ch == KEY_ESCAPE || ch == KEY_ENTER || ch == KEY_DEL)
@@ -3495,12 +3553,14 @@ boolean M_Responder(event_t *ev)
 		}
 	}
 
+	routine = action;
+
 	// BP: one of the more big hack i have never made
 	if (routine && (currentMenu->menuitems[itemOn].status & IT_TYPE) == IT_CVAR)
 	{
 		if ((currentMenu->menuitems[itemOn].status & IT_CVARTYPE) == IT_CV_STRING)
 		{
-			if (M_ChangeStringCvar(ch))
+			if (M_ChangeStringCvar(ev, ch))
 				return true;
 			else
 				routine = NULL;
@@ -3558,7 +3618,9 @@ boolean M_Responder(event_t *ev)
 					}
 #endif
 				}
+
 				S_StartSound(NULL, sfx_menu1);
+
 				switch (currentMenu->menuitems[itemOn].status & IT_TYPE)
 				{
 					case IT_CVAR:
@@ -3609,10 +3671,6 @@ boolean M_Responder(event_t *ev)
 				return true;
 			}
 
-			// Why _does_ backspace go back anyway?
-			//currentMenu->lastOn = itemOn;
-			//if (currentMenu->prevMenu)
-			//	M_SetupNextMenu(currentMenu->prevMenu);
 			return false;
 
 		default:
@@ -6636,8 +6694,19 @@ static void M_AddonExec(INT32 ch)
 }
 
 #define len menusearch[0]
-static boolean M_ChangeStringAddons(INT32 choice)
+static boolean M_ChangeStringAddons(event_t *ev, INT32 choice)
 {
+	if (ev->type == ev_textinput)
+	{
+		size_t baselen = (size_t)len, newlen;
+
+		M_HandleTextField(menusearch + 1, MAXSTRINGLENGTH - 1, NULL, ev->text);
+		newlen = strlen(menusearch + 1);
+
+		len += (newlen - baselen);
+		return true;
+	}
+
 #ifdef TEXTINPUTEVENTS
 	if (!cv_keyboardlocale.value)
 #endif
@@ -6658,7 +6727,10 @@ static boolean M_ChangeStringAddons(INT32 choice)
 		case KEY_BACKSPACE:
 			if (len)
 			{
-				menusearch[1+--len] = 0;
+				int intlen = (int)len;
+				M_StringDec(menusearch + 1, &intlen);
+				len = (char)intlen;
+				menusearch[1+len] = 0;
 				return true;
 			}
 			break;
@@ -6678,11 +6750,11 @@ static boolean M_ChangeStringAddons(INT32 choice)
 }
 #undef len
 
-static void M_HandleAddons(INT32 choice)
+static void M_HandleAddons(event_t *ev, INT32 choice)
 {
 	boolean exitmenu = false; // exit to previous menu
 
-	if (M_ChangeStringAddons(choice))
+	if (M_ChangeStringAddons(ev, choice))
 	{
 		char *tempname = NULL;
 		if (dirmenu && dirmenu[dir_on[menudepthleft]])
@@ -7478,7 +7550,9 @@ static void M_DrawEmblemHints(void)
 
 		totalemblems++;
 
-		if (totalemblems >= ((hintpage-1)*(NUMHINTS*2) + 1) && totalemblems < (hintpage*NUMHINTS*2)+1){
+		if (totalemblems >= ((hintpage-1)*(NUMHINTS*2) + 1) && totalemblems < (hintpage*NUMHINTS*2)+1)
+		{
+			char *text;
 
 			if (emblem->collected)
 			{
@@ -7496,13 +7570,15 @@ static void M_DrawEmblemHints(void)
 				hint = emblem->hint;
 			else
 				hint = M_GetText("No hint available for this emblem.");
-			hint = V_WordWrap(40, BASEVIDWIDTH-12, 0, hint);
+			text = V_WordWrap(40, BASEVIDWIDTH-12, 0, hint);
+
 			//always draw tiny if we have more than NUMHINTS*2, visually more appealing
 			if (local > NUMHINTS)
-				V_DrawThinString(x+28, y, V_RETURN8|V_ALLOWLOWERCASE|collected, hint);
+				V_DrawThinString(x+28, y, V_RETURN8|V_ALLOWLOWERCASE|collected, text);
 			else
-				V_DrawString(x+28, y, V_RETURN8|V_ALLOWLOWERCASE|collected, hint);
+				V_DrawString(x+28, y, V_RETURN8|V_ALLOWLOWERCASE|collected, text);
 
+			Z_Free(text);
 			y += 28;
 
 			// If there are more than 1 page's but less than 2 pages' worth of emblems on the last possible page,
@@ -10957,6 +11033,8 @@ static void M_DrawRoomMenu(void)
 
 	if (m_waiting_mode == M_NOT_WAITING)
 	{
+		char *roomtext;
+
 		M_DrawTextBox(144, 24, 20, 20);
 
 		if (itemOn == 0)
@@ -10964,8 +11042,9 @@ static void M_DrawRoomMenu(void)
 		else
 			rmotd = room_list[itemOn-1].motd;
 
-		rmotd = V_WordWrap(0, 20*8, 0, rmotd);
-		V_DrawString(144+8, 32, V_ALLOWLOWERCASE|V_RETURN8, rmotd);
+		roomtext = V_WordWrap(0, 20*8, 0, rmotd);
+		V_DrawString(144+8, 32, V_ALLOWLOWERCASE|V_RETURN8, roomtext);
+		Z_Free(roomtext);
 	}
 
 	if (m_waiting_mode)
@@ -11569,10 +11648,35 @@ static void M_ConnectIP(INT32 choice)
 }
 
 // Tails 11-19-2002
-static void M_HandleConnectIP(INT32 choice)
+static void M_HandleConnectIP(event_t *ev, INT32 choice)
 {
 	size_t l;
 	boolean exitmenu = false;  // exit to previous menu and send name change
+
+	if (ev->type == ev_textinput)
+	{
+		UINT32 letter;
+
+		char *c = ev->text;
+		int i = 0, len = M_chrlen(c);
+
+		l = strlen(setupm_ip);
+		if (l+len > 28-1)
+			return;
+
+		letter = M_UTF8ToUCS(c);
+
+		if ((letter >= '-' && letter <= ':') || (letter >= 'A' && letter <= 'Z') || (letter >= 'a' && letter <= 'z'))
+		{
+			for (; i < len; i++)
+			{
+				setupm_ip[l+i] = c[i];
+				setupm_ip[l+i+1] = 0;
+			}
+		}
+
+		return;
+	}
 
 	switch (choice)
 	{
@@ -11599,7 +11703,7 @@ static void M_HandleConnectIP(INT32 choice)
 			if ((l = strlen(setupm_ip)) != 0)
 			{
 				S_StartSound(NULL,sfx_menu1); // Tails
-				setupm_ip[l-1] = 0;
+				M_StringBackspace(setupm_ip);
 			}
 			break;
 
@@ -11914,11 +12018,17 @@ colordraw:
 }
 
 // Handle 1P/2P MP Setup
-static void M_HandleSetupMultiPlayer(INT32 choice)
+static void M_HandleSetupMultiPlayer(event_t *ev, INT32 choice)
 {
 	size_t   l;
 	INT32 prev_setupm_fakeskin;
-	boolean  exitmenu = false;  // exit to previous menu and send name change
+	boolean exitmenu = false;  // exit to previous menu and send name change
+
+	if (ev->type == ev_textinput)
+	{
+		M_HandleTextField(setupm_name, MAXPLAYERNAME, NULL, ev->text);
+		return;
+	}
 
 	switch (choice)
 	{
@@ -11994,7 +12104,7 @@ static void M_HandleSetupMultiPlayer(INT32 choice)
 			if (itemOn == 0 && (l = strlen(setupm_name))!=0)
 			{
 				S_StartSound(NULL,sfx_menu1); // Tails
-				setupm_name[l-1] = 0;
+				M_StringBackspace(setupm_name);
 			}
 			else if (itemOn == 2)
 			{
@@ -12080,13 +12190,13 @@ static void M_SetupMultiPlayer(INT32 choice)
 	if (!CanChangeSkin(consoleplayer))
 		MP_PlayerSetupMenu[1].status = (IT_GRAYEDOUT);
 	else
-		MP_PlayerSetupMenu[1].status = (IT_KEYHANDLER|IT_STRING);
+		MP_PlayerSetupMenu[1].status = (IT_EVENTHANDLER|IT_STRING);
 
 	// ditto with colour
 	if (Playing() && G_GametypeHasTeams())
 		MP_PlayerSetupMenu[2].status = (IT_GRAYEDOUT);
 	else
-		MP_PlayerSetupMenu[2].status = (IT_KEYHANDLER|IT_STRING);
+		MP_PlayerSetupMenu[2].status = (IT_EVENTHANDLER|IT_STRING);
 
 	multi_spr2 = P_GetSkinSprite2(&skins[setupm_fakeskin], SPR2_WALK, NULL);
 

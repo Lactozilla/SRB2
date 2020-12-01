@@ -43,6 +43,8 @@
 #include "p_local.h" // camera, camera2
 #include "p_tick.h"
 
+#include "utf8.h"
+
 #ifdef HWRENDER
 #include "hardware/hw_main.h"
 #endif
@@ -73,6 +75,10 @@ patch_t *ttlnum[10]; // act numbers (0-9)
 // Name tag fonts
 patch_t *ntb_font[NT_FONTSIZE];
 patch_t *nto_font[NT_FONTSIZE];
+
+// Unicode
+patch_t *uni_font[UNI_FONTSIZE];
+patch_t *emoji_font[EMOJI_FONTSIZE];
 
 static player_t *plr;
 boolean chat_on; // entering a chat message?
@@ -178,6 +184,33 @@ static void Command_CSay_f(void);
 static void Got_Saycmd(UINT8 **p, INT32 playernum);
 #endif
 
+static void HU_LoadUnicodeChar(INT32 chr)
+{
+	char buffer[9];
+
+	sprintf(buffer, "UN%.6X", chr);
+
+	chr -= UNI_FONTSTART;
+	if (chr < 0 || chr >= UNI_FONTSIZE)
+		return;
+
+	if (W_CheckNumForName(buffer) == LUMPERROR)
+		uni_font[chr] = NULL;
+	else
+		uni_font[chr] = (patch_t *)(W_CachePatchName(buffer, PU_HUDGFX));
+}
+
+static void HU_LoadUnicodeRange(INT32 start, INT32 end)
+{
+	INT32 i;
+
+	if (end == -1)
+		end = start;
+
+	for (i = start; i <= end; i++)
+		HU_LoadUnicodeChar(i);
+}
+
 void HU_LoadGraphics(void)
 {
 	char buffer[9];
@@ -202,6 +235,39 @@ void HU_LoadGraphics(void)
 			tny_font[i] = NULL;
 		else
 			tny_font[i] = (patch_t *)W_CachePatchName(buffer, PU_HUDGFX);
+	}
+
+	// Latin-1 Supplement (U+00A0 - U+00FF)
+	HU_LoadUnicodeRange(UNI_FONTSTART, 0xFF);
+
+	// Latin Extended-A (U+0100 - U+017F)
+	HU_LoadUnicodeRange(0x100, 0x17F);
+
+	// Latin Extended-B (U+0180 - U+024F)
+	HU_LoadUnicodeRange(0x180, 0x24F);
+
+	// Greek and Coptic (U+0370 - U+03FF)
+	HU_LoadUnicodeRange(0x370, 0x3FF);
+
+	// Cyrillic (U+0400 - U+04FF)
+	HU_LoadUnicodeRange(0x400, 0x4FF);
+
+	// Some symbols
+	HU_LoadUnicodeRange(0x2013, 0x204A);
+
+	// Katakana
+	HU_LoadUnicodeRange(0x30A0, 0x30FF);
+
+	// Emojis are spread over many blocks.
+	// Common smiley faces are on U+1F6xx.
+	j = EMOJI_FONTSTART;
+	for (i = 0; i < EMOJI_FONTSIZE; i++, j++)
+	{
+		sprintf(buffer, "UN%.6X", j);
+		if (W_CheckNumForName(buffer) == LUMPERROR)
+			emoji_font[i] = NULL;
+		else
+			emoji_font[i] = (patch_t *)W_CachePatchName(buffer, PU_HUDGFX);
 	}
 
 	j = LT_FONTSTART;
@@ -348,6 +414,124 @@ void HU_Start(void)
 	plr = &players[consoleplayer];
 
 	headsupactive = true;
+}
+
+//
+// Font manipulation
+//
+patch_t *HU_GetCharacterPatch(const char *chr)
+{
+	INT32 fontstart, fontsize;
+	patch_t **font = HU_GetFont(chr, &fontstart, &fontsize);
+	if (font == NULL)
+		return NULL;
+	return HU_GetCharacterPatchInFont(font, fontstart, fontsize, (*chr));
+}
+
+patch_t **HU_GetFont(const char *chr, INT32 *fontstart, INT32 *fontsize)
+{
+	patch_t **font = hu_font;
+	INT32 c;
+
+	if (chr == NULL)
+		return NULL;
+
+	c = *chr;
+	if (!c)
+		return NULL;
+
+	if (fontstart)
+		*fontstart = HU_FONTSTART;
+	if (fontsize)
+		*fontsize = HU_FONTSIZE;
+
+	if (M_CharIsUnicode(c))
+		font = HU_GetFontFromUCS(M_UTF8ToUCS(chr), fontstart, fontsize);
+
+	return font;
+}
+
+patch_t **HU_GetFontFromUCS(INT32 chr, INT32 *fontstart, INT32 *fontsize)
+{
+	if (chr >= EMOJI_FONTSTART)
+	{
+		if (fontstart)
+			*fontstart = EMOJI_FONTSTART;
+		if (fontsize)
+			*fontsize = EMOJI_FONTSIZE;
+		return emoji_font;
+	}
+	else
+	{
+		if (fontstart)
+			*fontstart = UNI_FONTSTART;
+		if (fontsize)
+			*fontsize = UNI_FONTSIZE;
+		return uni_font;
+	}
+}
+
+patch_t *HU_GetCharacterPatchInFont(patch_t **font, INT32 fontstart, INT32 fontsize, INT32 chr)
+{
+	if ((char)chr == ' ')
+		return NULL;
+
+	chr -= fontstart;
+
+	if (chr < 0)
+		return NULL;
+	else if (chr >= fontsize || !font[chr])
+	{
+		chr = (INT32)('?') - HU_FONTSTART;
+		if (chr < 0 || chr >= HU_FONTSIZE || !hu_font[chr])
+			return NULL;
+		return hu_font[chr];
+	}
+
+	return font[chr];
+}
+
+boolean HU_IsCharacterControlCode(char chr)
+{
+	return (((unsigned)chr & 0xFF) >= 0x80 && (signed int)((unsigned)chr & 0xFF) < UNI_FONTSTART);
+}
+
+boolean HU_IsCharacterColorCode(char chr)
+{
+	return (((unsigned)chr & 0xFF) >= 0x80 && ((unsigned)chr & 0xFF) <= 0x8F);
+}
+
+patch_t *Unicode_GetCharacter(INT32 chr)
+{
+	return HU_GetCharacterPatchInFont(uni_font, UNI_FONTSTART, UNI_FONTSIZE, chr);
+}
+
+patch_t *Unicode_GetEmoji(INT32 chr)
+{
+	return HU_GetCharacterPatchInFont(emoji_font, EMOJI_FONTSTART, EMOJI_FONTSIZE, chr);
+}
+
+boolean Unicode_IsCharacterValid(INT32 chr)
+{
+	patch_t **font = hu_font;
+	INT32 fontstart = HU_FONTSTART;
+	INT32 fontsize = HU_FONTSIZE;
+
+	if ((char)chr == ' ')
+		return true;
+	else if (M_CharIsUnicode(chr))
+		font = HU_GetFontFromUCS(chr, &fontstart, &fontsize);
+
+	chr -= fontstart;
+	if (chr < 0 || chr >= fontsize || !font[chr])
+		return false;
+
+	return true;
+}
+
+boolean Unicode_IsCharacterEmoji(INT32 chr)
+{
+	return (chr >= EMOJI_FONTSTART);
 }
 
 //======================================================================
@@ -658,15 +842,21 @@ static void Got_Saycmd(UINT8 **p, INT32 playernum)
 	{
 		size_t i;
 		const size_t j = strlen(msg);
-		for (i = 0; i < j; i++)
+
+		for (i = 0; i < j;)
 		{
-			if (msg[i] & 0x80)
+			char *chr = (msg + i);
+			int len = M_chrlen(chr);
+
+			if (HU_IsCharacterControlCode(*chr))
 			{
 				CONS_Alert(CONS_WARNING, M_GetText("Illegal say command received from %s containing invalid characters\n"), player_names[playernum]);
 				if (server)
 					SendKick(playernum, KICK_MSG_CON_FAIL | KICK_MSG_KEEP_BODY);
 				return;
 			}
+
+			i += len;
 		}
 	}
 
@@ -896,6 +1086,7 @@ static inline boolean HU_keyInChatString(char *s, char ch)
 	else if (ch == KEY_BACKSPACE)
 	{
 		size_t i = c_input;
+		int baselen = strlen(s), len = baselen, dec = 0;
 
 		if (c_input <= 0)
 			return false;
@@ -903,23 +1094,66 @@ static inline boolean HU_keyInChatString(char *s, char ch)
 		if (!s[i-1])
 			return false;
 
-		if (i >= strlen(s)-1)
+		if ((signed)i >= len-1)
 		{
-			s[strlen(s)-1] = 0;
-			c_input--;
+			dec = M_StringBackspace(s);
+			c_input -= dec;
 			return false;
 		}
 
+		M_StringDec(s, &len);
+		dec = (baselen - len);
+
 		for (; (i < HU_MAXMSGLEN); i++)
-		{
-			s[i-1] = s[i];
-		}
-		c_input--;
+			s[i-dec] = s[i];
+		c_input -= dec;
 	}
 	else if (ch != KEY_ENTER)
 		return false; // did not eat key
 
 	return true; // ate the key
+}
+
+static boolean HU_chatTextInput(char *s, char *utf8)
+{
+	size_t i = 0, l = strlen(s);
+	size_t chrlen = M_chrlen(utf8);
+
+	if ((l + chrlen) < HU_MAXMSGLEN)
+	{
+		if (c_input >= strlen(s)) // don't do anything complicated
+		{
+			for (; i < chrlen; i++, l++)
+			{
+				s[l] = utf8[i];
+				s[l+1] = 0;
+				c_input++;
+			}
+		}
+		else
+		{
+			for (; i < chrlen; i++)
+			{
+				// move everything past c_input for new characters:
+				size_t m = HU_MAXMSGLEN-1;
+				while (m>=c_input)
+				{
+					if (s[m])
+						s[m+1] = (s[m]);
+					if (m == 0) // prevent overflow
+						break;
+					m--;
+				}
+
+				s[c_input] = utf8[i]; // and replace this.
+				c_input++;
+			}
+		}
+
+		return true;
+	}
+
+	return false;
 }
 
 #endif
@@ -977,15 +1211,51 @@ static void HU_queueChatChar(char c)
 		size_t i = 0;
 		size_t ci = 2;
 		INT32 target = 0;
+		unsigned char chr = 1;
 
 		if (HU_clearChatSpaces()) // Avoids being able to send empty messages, or something.
 			return; // If this returns true, that means our message was NOTHING but spaces, so don't send it period.
 
-		do {
-			c = w_chat[-2+ci++];
-			if (!c || (c >= ' ' && !(c & 0x80))) // copy printable characters and terminating '\0' only.
-				buf[ci-1]=c;
-		} while (c);
+		// copy printable characters and terminating '\0' only.
+		do
+		{
+			char *char_p = &w_chat[-2 + ci];
+			chr = ((*char_p) & 0xFF);
+
+			if (!chr || (chr >= ' ' && !HU_IsCharacterControlCode(chr)))
+			{
+				int len;
+
+				if (!chr)
+				{
+					buf[ci] = '\0';
+					ci++;
+					break;
+				}
+
+				len = M_chrlen(char_p);
+
+				while (len > 0)
+				{
+					buf[ci] = chr;
+
+					ci++;
+					len--;
+
+					char_p++;
+					chr = ((*char_p) & 0xFF);
+
+					if (!chr)
+					{
+						buf[ci] = '\0';
+						ci++;
+						break;
+					}
+				}
+			}
+			else
+				ci++;
+		} while (chr);
 
 		for (;(i<HU_MAXMSGLEN);i++)
 			w_chat[i] = 0; // reset this.
@@ -1102,7 +1372,12 @@ boolean HU_Responder(event_t *ev)
 	INT32 c=0;
 #endif
 
-	if (ev->type != ev_keydown)
+	if (ev->type == ev_textinput && chat_on && !CHAT_MUTE)
+	{
+		HU_chatTextInput(w_chat, ev->text);
+		return true;
+	}
+	else if (ev->type != ev_keydown)
 		return false;
 
 	// only KeyDown events now...
@@ -1206,11 +1481,6 @@ boolean HU_Responder(event_t *ev)
 			{
 				memcpy(&w_chat[chatlen], paste, pastelen); // copy all of that.
 				c_input += pastelen;
-				/*size_t i = 0;
-				for (;i<pastelen;i++)
-				{
-					HU_queueChatChar(paste[i]); // queue it so that it's actually sent. (this chat write thing is REALLY messy.)
-				}*/
 				return true;
 			}
 			else	// otherwise, we need to shift everything and make space, etc etc
@@ -1267,14 +1537,14 @@ boolean HU_Responder(event_t *ev)
 			if (ctrldown)
 				c_input = M_JumpWordReverse(w_chat, c_input);
 			else
-				c_input--;
+				M_StringDec_size_t(w_chat, &c_input);
 		}
 		else if (c == KEY_RIGHTARROW && c_input < strlen(w_chat) && !OLDCHAT) // don't need to check for admin or w/e here since the chat won't ever contain anything if it's muted.
 		{
 			if (ctrldown)
 				c_input += M_JumpWord(&w_chat[c_input]);
 			else
-				c_input++;
+				M_StringInc_size_t(w_chat, &c_input);
 		}
 		return true;
 	}
@@ -1305,42 +1575,65 @@ static char *CHAT_WordWrap(INT32 x, INT32 w, INT32 option, const char *string)
 	slen = strlen(string);
 	x = 0;
 
-	for (i = 0; i < slen; ++i)
+	for (i = 0; i < slen;)
 	{
-		c = newstring[i];
-		if ((UINT8)c >= 0x80 && (UINT8)c <= 0x89) //color parsing! -Inuyasha 2.16.09
-			continue;
+		const char *ch = &newstring[i];
+		patch_t *pat = NULL;
+		patch_t **font = hu_font;
+		int fontstart = HU_FONTSTART;
+		int fontsize = HU_FONTSIZE;
+		int len = 1;
+		boolean unicode = false, emoji = false;
 
-		if (c == '\n')
+		c = newstring[i];
+
+		if (M_CharIsUnicode(c))
+		{
+			len = M_chrlen(ch);
+			c = M_UTF8ToUCS(ch);
+
+			font = HU_GetFontFromUCS(c, &fontstart, &fontsize);
+			emoji = Unicode_IsCharacterEmoji(c);
+			unicode = true;
+		}
+		else if (HU_IsCharacterControlCode(c)) //color parsing! -Inuyasha 2.16.09
+		{
+			i += len;
+			continue;
+		}
+		else if (c == '\n')
 		{
 			x = 0;
 			lastusablespace = 0;
+			i += len;
 			continue;
 		}
 
-		if (!(option & V_ALLOWLOWERCASE))
+		if (!emoji && !(option & V_ALLOWLOWERCASE))
 			c = toupper(c);
-		c -= HU_FONTSTART;
+		pat = HU_GetCharacterPatchInFont(font, fontstart, fontsize, c);
 
-		if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
+		if (!pat)
 		{
 			chw = spacewidth;
-			lastusablespace = i;
+			if (!unicode)
+				lastusablespace = i;
 		}
 		else
 			chw = charwidth;
 
 		x += chw;
+		i += len;
 
 		if (lastusablespace != 0 && x > w)
 		{
-			//CONS_Printf("Wrap at index %d\n", i);
 			newstring[lastusablespace] = '\n';
-			i = lastusablespace+1;
+			i = lastusablespace + len;
 			lastusablespace = 0;
 			x = 0;
 		}
 	}
+
 	return newstring;
 }
 
@@ -1378,11 +1671,14 @@ static void HU_drawMiniChat(void)
 		size_t j = 0;
 		INT32 linescount = 0;
 
-		while(msg[j]) // iterate through msg
+		while (msg[j]) // iterate through msg
 		{
-			if (msg[j] < HU_FONTSTART) // don't draw
+			unsigned char chr = (unsigned)(msg[j] & 0xFF);
+			boolean colorcode = HU_IsCharacterColorCode(chr);
+
+			if (chr < HU_FONTSTART || colorcode) // don't draw
 			{
-				if (msg[j] == '\n') // get back down.
+				if (chr == '\n') // get back down.
 				{
 					++j;
 					if (!prev_linereturn)
@@ -1393,7 +1689,7 @@ static void HU_drawMiniChat(void)
 					prev_linereturn = true;
 					continue;
 				}
-				else if (msg[j] & 0x80) // stolen from video.c, nice.
+				else if (colorcode)
 				{
 					++j;
 					continue;
@@ -1403,8 +1699,9 @@ static void HU_drawMiniChat(void)
 			}
 			else
 			{
-				j++;
+				j += M_chrlen(msg + j);
 			}
+
 			prev_linereturn = false;
 			dx += charwidth;
 			if (dx >= boxw)
@@ -1412,6 +1709,9 @@ static void HU_drawMiniChat(void)
 				dx = 0;
 				linescount += 1;
 			}
+
+			if (j > strlen(msg))
+				break;
 		}
 		dy = 0;
 		dx = 0;
@@ -1444,11 +1744,14 @@ static void HU_drawMiniChat(void)
 		char *msg = CHAT_WordWrap(x+2, boxw-(charwidth*2), V_SNAPTOBOTTOM|V_SNAPTOLEFT|V_ALLOWLOWERCASE, chat_mini[i]); // get the current message, and word wrap it.
 		UINT8 *colormap = NULL;
 
-		while(msg[j]) // iterate through msg
+		while (msg[j]) // iterate through msg
 		{
-			if (msg[j] < HU_FONTSTART) // don't draw
+			unsigned char chr = (unsigned)(msg[j] & 0xFF);
+			boolean colorcode = HU_IsCharacterColorCode(chr);
+
+			if (chr < HU_FONTSTART || colorcode) // don't draw
 			{
-				if (msg[j] == '\n') // get back down.
+				if (chr == '\n') // get back down.
 				{
 					++j;
 					if (!prev_linereturn)
@@ -1459,9 +1762,9 @@ static void HU_drawMiniChat(void)
 					prev_linereturn = true;
 					continue;
 				}
-				else if (msg[j] & 0x80) // stolen from video.c, nice.
+				else if (colorcode)
 				{
-					clrflag = ((msg[j] & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+					clrflag = ((chr & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
 					colormap = V_GetStringColormap(clrflag);
 					++j;
 					continue;
@@ -1474,7 +1777,8 @@ static void HU_drawMiniChat(void)
 				if (cv_chatbacktint.value) // on request of wolfy
 					V_DrawFillConsoleMap(x + dx + 2, y+dy, charwidth, charheight, 239|V_SNAPTOBOTTOM|V_SNAPTOLEFT);
 
-				V_DrawChatCharacter(x + dx + 2, y+dy, msg[j++] |V_SNAPTOBOTTOM|V_SNAPTOLEFT|transflag, true, colormap);
+				V_DrawUnicodeChatCharacter(x + dx + 2, y+dy, (msg + j), V_SNAPTOBOTTOM|V_SNAPTOLEFT|transflag, true, colormap);
+				j += M_chrlen(msg + j);
 			}
 
 			dx += charwidth;
@@ -1484,6 +1788,9 @@ static void HU_drawMiniChat(void)
 				dx = 0;
 				dy += charheight;
 			}
+
+			if (j > strlen(msg))
+				break;
 		}
 		dy += charheight;
 		dx = 0;
@@ -1543,20 +1850,24 @@ static void HU_drawChatLog(INT32 offset)
 		INT32 j = 0;
 		char *msg = CHAT_WordWrap(x+2, boxw-(charwidth*2), V_SNAPTOBOTTOM|V_SNAPTOLEFT|V_ALLOWLOWERCASE, chat_log[i]); // get the current message, and word wrap it.
 		UINT8 *colormap = NULL;
-		while(msg[j]) // iterate through msg
+
+		while (msg[j]) // iterate through msg
 		{
-			if (msg[j] < HU_FONTSTART) // don't draw
+			unsigned char chr = (unsigned)(msg[j] & 0xFF);
+			boolean colorcode = HU_IsCharacterColorCode(chr);
+
+			if (chr < HU_FONTSTART || colorcode) // don't draw
 			{
-				if (msg[j] == '\n') // get back down.
+				if (chr == '\n') // get back down.
 				{
 					++j;
 					dy += charheight;
 					dx = 0;
 					continue;
 				}
-				else if (msg[j] & 0x80) // stolen from video.c, nice.
+				else if (colorcode)
 				{
-					clrflag = ((msg[j] & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
+					clrflag = ((chr & 0x7f) << V_CHARCOLORSHIFT) & V_CHARCOLORMASK;
 					colormap = V_GetStringColormap(clrflag);
 					++j;
 					continue;
@@ -1567,9 +1878,8 @@ static void HU_drawChatLog(INT32 offset)
 			else
 			{
 				if ((y+dy+2 >= chat_topy) && (y+dy < (chat_bottomy)))
-					V_DrawChatCharacter(x + dx + 2, y+dy+2, msg[j++] |V_SNAPTOBOTTOM|V_SNAPTOLEFT, true, colormap);
-				else
-					j++; // don't forget to increment this or we'll get stuck in the limbo.
+					V_DrawUnicodeChatCharacter(x + dx + 2, y+dy+2, (msg + j), V_SNAPTOBOTTOM|V_SNAPTOLEFT, true, colormap);
+				j += M_chrlen(msg + j);
 			}
 
 			dx += charwidth;
@@ -1578,6 +1888,9 @@ static void HU_drawChatLog(INT32 offset)
 				dx = 0;
 				dy += charheight;
 			}
+
+			if ((unsigned)j > strlen(msg))
+				break;
 		}
 		dy += charheight;
 		dx = 0;
@@ -1626,8 +1939,8 @@ static void HU_DrawChat(void)
 	UINT32 i = 0, saylen = strlen(w_chat); // You learn new things everyday!
 	INT32 cflag = 0;
 	const char *ntalk = "Say: ", *ttalk = "Team: ";
-	const char *talk = ntalk;
 	const char *mute = "Chat has been muted.";
+	char *talk = Z_StrDup(ntalk);
 
 #ifdef NETSPLITSCREEN
 	if (splitscreen)
@@ -1643,7 +1956,8 @@ static void HU_DrawChat(void)
 
 	if (teamtalk)
 	{
-		talk = ttalk;
+		Z_Free(talk);
+		talk = Z_StrDup(ttalk);
 #if 0
 		if (players[consoleplayer].ctfteam == 1)
 			t = 0x500;  // Red
@@ -1654,7 +1968,8 @@ static void HU_DrawChat(void)
 
 	if (CHAT_MUTE)
 	{
-		talk = mute;
+		Z_Free(talk);
+		talk = Z_StrDup(mute);
 		typelines = 1;
 		cflag = V_GRAYMAP; // set text in gray if chat is muted.
 	}
@@ -1663,16 +1978,21 @@ static void HU_DrawChat(void)
 
 	while (talk[i])
 	{
-		if (talk[i] < HU_FONTSTART)
+		unsigned char chr = (unsigned)(talk[i] & 0xFF);
+		boolean colorcode = HU_IsCharacterColorCode(chr);
+
+		if (chr < HU_FONTSTART || colorcode)
 			++i;
 		else
 		{
-			V_DrawChatCharacter(chatx + c + 2, y, talk[i] |V_SNAPTOBOTTOM|V_SNAPTOLEFT|cflag, true, V_GetStringColormap(talk[i]|cflag));
-			i++;
+			V_DrawUnicodeChatCharacter(chatx + c + 2, y, talk + i, V_SNAPTOBOTTOM|V_SNAPTOLEFT|cflag, true, V_GetStringColormap(cflag));
+			i += M_chrlen(talk + i);
 		}
 
 		c += charwidth;
 	}
+
+	Z_Free(talk);
 
 	// if chat is muted, just draw the log and get it over with, no need to draw anything else.
 	if (CHAT_MUTE)
@@ -1689,8 +2009,14 @@ static void HU_DrawChat(void)
 
 	while (w_chat[i])
 	{
+		unsigned char chr = (unsigned)(w_chat[i] & 0xFF);
+		boolean colorcode = HU_IsCharacterColorCode(chr);
 		boolean skippedline = false;
-		if (c_input == (i+1))
+
+		size_t next = i;
+		M_StringInc_size_t(w_chat, &next);
+
+		if (c_input == next)
 		{
 			INT32 cursorx = (c+charwidth < boxw-charwidth) ? (chatx + 2 + c+charwidth) : (chatx+1); // we may have to go down.
 			INT32 cursory = (cursorx != chatx+1) ? (y) : (y+charheight);
@@ -1705,10 +2031,13 @@ static void HU_DrawChat(void)
 		}
 
 		//Hurdler: isn't it better like that?
-		if (w_chat[i] < HU_FONTSTART)
+		if (chr < HU_FONTSTART || colorcode)
 			++i;
 		else
-			V_DrawChatCharacter(chatx + c + 2, y, w_chat[i++] | V_SNAPTOBOTTOM|V_SNAPTOLEFT | t, true, NULL);
+		{
+			V_DrawUnicodeChatCharacter(chatx + c + 2, y, w_chat + i, V_SNAPTOBOTTOM|V_SNAPTOLEFT | t, true, NULL);
+			i += M_chrlen(w_chat + i);
+		}
 
 		c += charwidth;
 		if (c > boxw-(charwidth*2) && !skippedline)
@@ -1803,12 +2132,14 @@ static void HU_DrawChat_Old(void)
 	INT32 t = 0, c = 0, y = HU_INPUTY;
 	size_t i = 0;
 	const char *ntalk = "Say: ", *ttalk = "Say-Team: ";
-	const char *talk = ntalk;
-	INT32 charwidth = 8 * con_scalefactor; //SHORT(hu_font['A'-HU_FONTSTART]->width) * con_scalefactor;
-	INT32 charheight = 8 * con_scalefactor; //SHORT(hu_font['A'-HU_FONTSTART]->height) * con_scalefactor;
+	char *talk = Z_StrDup(ntalk);
+	INT32 charwidth = 8 * con_scalefactor;
+	INT32 charheight = 8 * con_scalefactor;
+
 	if (teamtalk)
 	{
-		talk = ttalk;
+		Z_Free(talk);
+		talk = Z_StrDup(ttalk);
 #if 0
 		if (players[consoleplayer].ctfteam == 1)
 			t = 0x500;  // Red
@@ -1819,18 +2150,21 @@ static void HU_DrawChat_Old(void)
 
 	while (talk[i])
 	{
-		if (talk[i] < HU_FONTSTART)
-		{
+		unsigned char chr = (unsigned)(talk[i] & 0xFF);
+		boolean colorcode = HU_IsCharacterColorCode(chr);
+
+		if (chr < HU_FONTSTART || colorcode)
 			++i;
-			//charwidth = 4 * con_scalefactor;
-		}
 		else
 		{
-			//charwidth = SHORT(hu_font[talk[i]-HU_FONTSTART]->width) * con_scalefactor;
-			V_DrawCharacter(HU_INPUTX + c, y, talk[i++] | cv_constextsize.value | V_NOSCALESTART, true);
+			V_DrawUnicodeCharacter(HU_INPUTX + c, y, talk + i, cv_constextsize.value | V_NOSCALESTART, true);
+			i += M_chrlen(talk + i);
 		}
+
 		c += charwidth;
 	}
+
+	Z_Free(talk);
 
 	if ((strlen(w_chat) == 0 || c_input == 0) && hu_tick < 4)
 		V_DrawCharacter(HU_INPUTX+c, y+2*con_scalefactor, '_' |cv_constextsize.value | V_NOSCALESTART|t, true);
@@ -1838,8 +2172,13 @@ static void HU_DrawChat_Old(void)
 	i = 0;
 	while (w_chat[i])
 	{
+		unsigned char chr = (unsigned)(w_chat[i] & 0xFF);
+		boolean colorcode = HU_IsCharacterColorCode(chr);
 
-		if (c_input == (i+1) && hu_tick < 4)
+		size_t next = i;
+		M_StringInc_size_t(w_chat, &next);
+
+		if (c_input == next && hu_tick < 4)
 		{
 			INT32 cursorx = (HU_INPUTX+c+charwidth < vid.width) ? (HU_INPUTX + c + charwidth) : (HU_INPUTX); // we may have to go down.
 			INT32 cursory = (cursorx != HU_INPUTX) ? (y) : (y+charheight);
@@ -1847,15 +2186,12 @@ static void HU_DrawChat_Old(void)
 		}
 
 		//Hurdler: isn't it better like that?
-		if (w_chat[i] < HU_FONTSTART)
-		{
+		if (chr < HU_FONTSTART || colorcode)
 			++i;
-			//charwidth = 4 * con_scalefactor;
-		}
 		else
 		{
-			//charwidth = SHORT(hu_font[w_chat[i]-HU_FONTSTART]->width) * con_scalefactor;
-			V_DrawCharacter(HU_INPUTX + c, y, w_chat[i++] | cv_constextsize.value | V_NOSCALESTART | t, true);
+			V_DrawUnicodeCharacter(HU_INPUTX + c, y,w_chat + i, cv_constextsize.value | V_NOSCALESTART | t, true);
+			i += M_chrlen(w_chat + i);
 		}
 
 		c += charwidth;

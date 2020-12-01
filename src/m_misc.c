@@ -42,6 +42,8 @@
 #include "i_system.h"
 #include "command.h" // cv_execversion
 
+#include "utf8.h"
+
 #include "m_anigif.h"
 
 // So that the screenshot menu auto-updates...
@@ -2610,6 +2612,106 @@ void M_MkdirEachUntil(const char *cpath, int start, int end, int mode)
 void M_MkdirEach(const char *path, int start, int mode)
 {
 	M_MkdirEachUntil(path, start, -1, mode);
+}
+
+int M_strlen(const char *s)
+{
+	if (s == NULL)
+		return 0;
+	return u8_strlen(s);
+}
+
+int M_chrlen(const char *c)
+{
+	if (c == NULL)
+		return 0;
+
+	if (M_CharIsUnicode(c[0]))
+		return u8_seqlen(c);
+	else
+		return 1;
+}
+
+void M_StringInc(char *s, int *i)
+{
+	u8_inc(s, i);
+}
+
+void M_StringDec(char *s, int *i)
+{
+	u8_dec(s, i);
+}
+
+void M_StringInc_size_t(char *s, size_t *i)
+{
+	int pos = (int)(*i);
+	u8_inc(s, &pos);
+	*i = (size_t)pos;
+}
+
+void M_StringDec_size_t(char *s, size_t *i)
+{
+	int pos = (int)(*i);
+	u8_dec(s, &pos);
+	*i = (size_t)pos;
+}
+
+void M_StringIncLen(char *s, int *i, int len)
+{
+	int l = 0;
+	for (; l < len; l++)
+		M_StringInc(s, i);
+}
+
+void M_StringDecLen(char *s, int *i, int len)
+{
+	int l = 0;
+	for (; l < len; l++)
+		M_StringDec(s, i);
+}
+
+void M_StringIncLen_size_t(char *s, size_t *i, int len)
+{
+	int l = 0;
+	for (; l < len; l++)
+		M_StringInc_size_t(s, i);
+}
+
+void M_StringDecLen_size_t(char *s, size_t *i, int len)
+{
+	int l = 0;
+	for (; l < len; l++)
+		M_StringDec_size_t(s, i);
+}
+
+int M_StringBackspace(char *s)
+{
+	int baselen = strlen(s), len = baselen, dec;
+
+	M_StringDec(s, &len);
+
+	dec = (baselen - len);
+	baselen -= dec;
+	s[baselen] = 0;
+
+	return dec;
+}
+
+boolean M_CharIsUnicode(char c)
+{
+	if (HU_IsCharacterColorCode(c))
+		return false;
+	return ((signed)c < 0);
+}
+
+UINT32 M_UTF8ToUCS(const char *c)
+{
+	UINT32 ucs[5];
+	int len = M_chrlen(c);
+
+	u8_toucs(ucs, len, c, len);
+
+	return ucs[0];
 }
 
 int M_JumpWord(const char *line)

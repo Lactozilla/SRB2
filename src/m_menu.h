@@ -248,8 +248,8 @@ void M_QuitResponse(INT32 ch);
 boolean M_CanShowLevelInList(INT32 mapnum, INT32 gt);
 
 // flags for items in the menu
-// menu handle (what we do when key is pressed
-#define IT_TYPE             15     // (1+2+4+8)
+// menu handle (what we do when a key is pressed)
+#define IT_TYPE             31     // (1+2+4+8+16)
 #define IT_CALL              0     // call the function
 #define IT_SPACE             1     // no handling
 #define IT_ARROWS            2     // call function with 0 for left arrow and 1 for right arrow in param
@@ -258,40 +258,41 @@ boolean M_CanShowLevelInList(INT32 mapnum, INT32 gt);
 #define IT_CVAR              8     // handle as a cvar
 #define IT_PAIR             11     // no handling, define both sides of text
 #define IT_MSGHANDLER       12     // same as key but with event and sometime can handle y/n key (special for message)
+#define IT_EVENTHANDLER     16     // event handler
 
-#define IT_DISPLAY   (48+64+128)    // 16+32+64+128
+#define IT_DISPLAY  (96+128+256)    // (32+64+128+256)
 #define IT_NOTHING            0     // space
-#define IT_PATCH             16     // a patch or a string with big font
-#define IT_STRING            32     // little string (spaced with 10)
-#define IT_WHITESTRING       48     // little string in white
-#define IT_DYBIGSPACE        64     // same as noting
-#define IT_DYLITLSPACE   (16+64)    // little space
-#define IT_STRING2       (32+64)    // a simple string
-#define IT_GRAYPATCH     (16+32+64) // grayed patch or big font string
-#define IT_BIGSLIDER        128     // volume sound use this
-#define IT_TRANSTEXT     (16+128)   // Transparent text
-#define IT_TRANSTEXT2    (32+128)   // used for control names
-#define IT_HEADERTEXT    (48+128)   // Non-selectable header option, displays in yellow offset to the left a little
-#define IT_QUESTIONMARKS (64+128)   // Displays as question marks, used for secrets
-#define IT_CENTER           256     // if IT_PATCH, center it on screen
+#define IT_PATCH             32     // a patch or a string with big font
+#define IT_STRING            64     // little string (spaced with 10)
+#define IT_WHITESTRING       96     // little string in white
+#define IT_DYBIGSPACE       128     // same as noting
+#define IT_DYLITLSPACE  (32+128)    // little space
+#define IT_STRING2      (64+128)    // a simple string
+#define IT_GRAYPATCH    (32+64+128) // grayed patch or big font string
+#define IT_BIGSLIDER        256     // volume sound use this
+#define IT_TRANSTEXT      (32+256)  // Transparent text
+#define IT_TRANSTEXT2     (64+256)  // used for control names
+#define IT_HEADERTEXT     (96+256)  // Non-selectable header option, displays in yellow offset to the left a little
+#define IT_QUESTIONMARKS (128+256)  // Displays as question marks, used for secrets
+#define IT_CENTER           512     // if IT_PATCH, center it on screen
 
-//consvar specific
-#define IT_CVARTYPE   (512+1024+2048)
+// consvar specific
+#define IT_CVARTYPE   (1024+2048+4096)
 #define IT_CV_NORMAL         0
-#define IT_CV_SLIDER       512
-#define IT_CV_STRING      1024
-#define IT_CV_NOPRINT     1536
-#define IT_CV_NOMOD       2048
-#define IT_CV_INVISSLIDER 2560
-#define IT_CV_INTEGERSTEP 4096      // if IT_CV_NORMAL and cvar is CV_FLOAT, modify it by 1 instead of 0.0625
-#define IT_CV_FLOATSLIDER 4608      // IT_CV_SLIDER, value modified by 0.0625 instead of 1 (for CV_FLOAT cvars)
+#define IT_CV_SLIDER      1024
+#define IT_CV_STRING      2048
+#define IT_CV_NOPRINT     3072
+#define IT_CV_NOMOD       4096
+#define IT_CV_INVISSLIDER 5120
+#define IT_CV_INTEGERSTEP 8192      // if IT_CV_NORMAL and cvar is CV_FLOAT, modify it by 1 instead of 0.0625
+#define IT_CV_FLOATSLIDER 9216      // IT_CV_SLIDER, value modified by 0.0625 instead of 1 (for CV_FLOAT cvars)
 
-//call/submenu specific
+// call/submenu specific
 // There used to be a lot more here but ...
 // A lot of them became redundant with the advent of the Pause menu, so they were removed
-#define IT_CALLTYPE   (512+1024)
+#define IT_CALLTYPE   (1024+2048)
 #define IT_CALL_NORMAL          0
-#define IT_CALL_NOTMODIFIED   512
+#define IT_CALL_NOTMODIFIED   1024
 
 // in INT16 for some common use
 #define IT_BIGSPACE    (IT_SPACE  +IT_DYBIGSPACE)
@@ -308,9 +309,10 @@ boolean M_CanShowLevelInList(INT32 mapnum, INT32 gt);
 
 typedef union
 {
-	struct menu_s *submenu;      // IT_SUBMENU
-	consvar_t *cvar;             // IT_CVAR
-	void (*routine)(INT32 choice); // IT_CALL, IT_KEYHANDLER, IT_ARROWS
+	struct menu_s *submenu;                                  // IT_SUBMENU
+	consvar_t     *cvar;                                     // IT_CVAR
+	void         (*routine)(INT32 choice);                   // IT_CALL, IT_KEYHANDLER, IT_ARROWS
+	void         (*eventhandler)(event_t *ev, INT32 choice); // IT_EVENTHANDLER
 } itemaction_t;
 
 //

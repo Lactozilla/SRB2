@@ -22,6 +22,7 @@ typedef enum
 {
 	ev_keydown,
 	ev_keyup,
+	ev_textinput,
 	ev_console,
 	ev_mouse,
 	ev_joystick,
@@ -36,6 +37,7 @@ typedef struct
 	INT32 data1; // keys / mouse/joystick buttons
 	INT32 data2; // mouse/joystick x move
 	INT32 data3; // mouse/joystick y move
+	char text[32];
 } event_t;
 
 //

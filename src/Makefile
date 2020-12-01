@@ -507,6 +507,7 @@ OBJS:=$(i_main_o) \
 		$(OBJDIR)/p_tick.o   \
 		$(OBJDIR)/p_user.o   \
 		$(OBJDIR)/p_slopes.o \
+		$(OBJDIR)/b_bot.o    \
 		$(OBJDIR)/tables.o   \
 		$(OBJDIR)/r_bsp.o    \
 		$(OBJDIR)/r_data.o   \
@@ -534,8 +535,8 @@ OBJS:=$(i_main_o) \
 		$(OBJDIR)/http-mserv.o\
 		$(OBJDIR)/i_tcp.o    \
 		$(OBJDIR)/lzf.o	     \
+		$(OBJDIR)/utf8.o     \
 		$(OBJDIR)/vid_copy.o \
-		$(OBJDIR)/b_bot.o \
 		$(i_net_o)      \
 		$(i_system_o)   \
 		$(i_sound_o)    \

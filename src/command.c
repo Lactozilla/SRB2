@@ -445,7 +445,7 @@ static void COM_TokenizeString(char *ptext)
 	while (com_argc < MAX_ARGS)
 	{
 		// Skip whitespace up to a newline.
-		while (*ptext != '\0' && *ptext <= ' ' && *ptext != '\n')
+		while (*ptext != '\0' && ((unsigned)(*ptext) & 0xFF) <= ' ' && *ptext != '\n')
 		{
 			if (ptext[0] == '\033')
 			{
@@ -2469,7 +2469,7 @@ static char *COM_Parse(char *data)
 
 	// skip whitespace
 skipwhite:
-	while ((c = *data) <= ' ')
+	while (((unsigned)(c = *data) & 0xFF) <= ' ')
 	{
 		if (c == '\0')
 			return NULL; // end of file;
@@ -2525,7 +2525,7 @@ skipwhite:
 			len++;
 			c = *data;
 		}
-	} while (c > 32);
+	} while ((((unsigned)c) & 0xFF) > 32);
 
 	com_token[len] = 0;
 	return data;

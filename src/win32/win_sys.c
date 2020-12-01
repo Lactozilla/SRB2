@@ -301,7 +301,7 @@ static BOOL I_ReadyConsole(HANDLE ci)
 
 static inline VOID I_GetConsoleEvents(VOID)
 {
-	event_t ev = {0,0,0,0};
+	event_t ev = {0,0,0,0,{0}};
 	HANDLE ci = GetStdHandle(STD_INPUT_HANDLE);
 	HANDLE co = GetStdHandle(STD_OUTPUT_HANDLE);
 	CONSOLE_SCREEN_BUFFER_INFO CSBI;
