@@ -1938,9 +1938,9 @@ static void HU_DrawChat(void)
 	INT32 t = 0, c = 0, y = chaty - (typelines*charheight);
 	UINT32 i = 0, saylen = strlen(w_chat); // You learn new things everyday!
 	INT32 cflag = 0;
-	const char *ntalk = "Say: ", *ttalk = "Team: ";
-	const char *mute = "Chat has been muted.";
-	char *talk = Z_StrDup(ntalk);
+	char talk[256];
+
+	strlcpy(talk, M_GetText("Say: "), sizeof(talk));
 
 #ifdef NETSPLITSCREEN
 	if (splitscreen)
@@ -1956,8 +1956,7 @@ static void HU_DrawChat(void)
 
 	if (teamtalk)
 	{
-		Z_Free(talk);
-		talk = Z_StrDup(ttalk);
+		strlcpy(talk, M_GetText("Team: "), sizeof(talk));
 #if 0
 		if (players[consoleplayer].ctfteam == 1)
 			t = 0x500;  // Red
@@ -1968,8 +1967,7 @@ static void HU_DrawChat(void)
 
 	if (CHAT_MUTE)
 	{
-		Z_Free(talk);
-		talk = Z_StrDup(mute);
+		strlcpy(talk, M_GetText("Chat has been muted."), sizeof(talk));
 		typelines = 1;
 		cflag = V_GRAYMAP; // set text in gray if chat is muted.
 	}
@@ -1991,8 +1989,6 @@ static void HU_DrawChat(void)
 
 		c += charwidth;
 	}
-
-	Z_Free(talk);
 
 	// if chat is muted, just draw the log and get it over with, no need to draw anything else.
 	if (CHAT_MUTE)
@@ -2131,15 +2127,15 @@ static void HU_DrawChat_Old(void)
 {
 	INT32 t = 0, c = 0, y = HU_INPUTY;
 	size_t i = 0;
-	const char *ntalk = "Say: ", *ttalk = "Say-Team: ";
-	char *talk = Z_StrDup(ntalk);
+	char talk[256];
 	INT32 charwidth = 8 * con_scalefactor;
 	INT32 charheight = 8 * con_scalefactor;
 
+	strlcpy(talk, M_GetText("Say: "), sizeof(talk));
+
 	if (teamtalk)
 	{
-		Z_Free(talk);
-		talk = Z_StrDup(ttalk);
+		strlcpy(talk, M_GetText("Say-Team: "), sizeof(talk));
 #if 0
 		if (players[consoleplayer].ctfteam == 1)
 			t = 0x500;  // Red
@@ -2163,8 +2159,6 @@ static void HU_DrawChat_Old(void)
 
 		c += charwidth;
 	}
-
-	Z_Free(talk);
 
 	if ((strlen(w_chat) == 0 || c_input == 0) && hu_tick < 4)
 		V_DrawCharacter(HU_INPUTX+c, y+2*con_scalefactor, '_' |cv_constextsize.value | V_NOSCALESTART|t, true);
