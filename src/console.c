@@ -1734,7 +1734,7 @@ static void CON_DrawHudlines(void)
 	for (i = con_cy - con_hudlines+1; i <= con_cy; i++)
 	{
 		size_t c;
-		INT32 x;
+		INT32 x, len;
 
 		if ((signed)i < 0)
 			continue;
@@ -1743,20 +1743,19 @@ static void CON_DrawHudlines(void)
 
 		p = (UINT8 *)&con_buffer[(i%con_totallines)*con_width];
 
-		for (c = 0, x = 0; c < con_width; c++, x += charwidth, p++)
+		for (c = 0, x = 0; c < con_width; x += charwidth)
 		{
-			while (*p & 0x80) // Graue 06-19-2004
+			while (HU_IsCharacterColorCode(*p)) // Graue 06-19-2004
 			{
 				charflags = (*p & 0x7f) << V_CHARCOLORSHIFT;
 				p++;
 			}
-			if (*p < HU_FONTSTART)
-				;//charwidth = 4 * con_scalefactor;
-			else
-			{
-				//charwidth = SHORT(hu_font['A'-HU_FONTSTART]->width) * con_scalefactor;
-				V_DrawUnicodeCharacter(x, y, (char *)p, charflags | cv_constextsize.value | V_NOSCALESTART, true);
-			}
+
+			V_DrawUnicodeCharacter(x, y, (char *)p, charflags | cv_constextsize.value | V_NOSCALESTART, true);
+
+			len = M_chrlen(p);
+			p += len;
+			c += len;
 		}
 
 		y += charheight;

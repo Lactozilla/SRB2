@@ -2130,6 +2130,7 @@ static void HU_DrawChat_Old(void)
 	char talk[256];
 	INT32 charwidth = 8 * con_scalefactor;
 	INT32 charheight = 8 * con_scalefactor;
+	INT32 cursory = y;
 
 	strlcpy(talk, M_GetText("Say: "), sizeof(talk));
 
@@ -2175,7 +2176,7 @@ static void HU_DrawChat_Old(void)
 		if (c_input == next && hu_tick < 4)
 		{
 			INT32 cursorx = (HU_INPUTX+c+charwidth < vid.width) ? (HU_INPUTX + c + charwidth) : (HU_INPUTX); // we may have to go down.
-			INT32 cursory = (cursorx != HU_INPUTX) ? (y) : (y+charheight);
+			cursory = (cursorx != HU_INPUTX) ? (y) : (y+charheight);
 			V_DrawCharacter(cursorx, cursory+2*con_scalefactor, '_' |cv_constextsize.value | V_NOSCALESTART|t, true);
 		}
 
@@ -2184,7 +2185,7 @@ static void HU_DrawChat_Old(void)
 			++i;
 		else
 		{
-			V_DrawUnicodeCharacter(HU_INPUTX + c, y,w_chat + i, cv_constextsize.value | V_NOSCALESTART | t, true);
+			V_DrawUnicodeCharacter(HU_INPUTX + c, y, w_chat + i, cv_constextsize.value | V_NOSCALESTART | t, true);
 			i += M_chrlen(w_chat + i);
 		}
 
@@ -2197,7 +2198,7 @@ static void HU_DrawChat_Old(void)
 	}
 
 	if (hu_tick < 4)
-		V_DrawCharacter(HU_INPUTX + c, y, '_' | cv_constextsize.value |V_NOSCALESTART|t, true);
+		V_DrawCharacter(HU_INPUTX + c, cursory+2*con_scalefactor, '_' | cv_constextsize.value |V_NOSCALESTART|t, true);
 }
 #endif
 
