@@ -1328,7 +1328,10 @@ textinput:
 		CON_InputDelSelection();
 
 	if (ev->type == ev_textinput)
+	{
+		completion[0] = 0;
 		CON_InputAddUTF8Char(ev->text);
+	}
 	else
 		CON_InputAddChar(key);
 
