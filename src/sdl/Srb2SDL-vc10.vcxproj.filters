@@ -234,7 +234,7 @@
     <ClInclude Include="..\hardware\hw_dll.h">
       <Filter>Hw_Hardware</Filter>
     </ClInclude>
-    <ClInclude Include="..\hardware\hw_drv.h">
+    <ClInclude Include="..\hardware\hw_gpu.h">
       <Filter>Hw_Hardware</Filter>
     </ClInclude>
     <ClInclude Include="..\hardware\hw_glob.h">

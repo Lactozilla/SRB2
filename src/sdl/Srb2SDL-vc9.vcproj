@@ -2539,7 +2539,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\hardware\hw_drv.h"
+				RelativePath="..\hardware\hw_gpu.h"
 				>
 			</File>
 			<File

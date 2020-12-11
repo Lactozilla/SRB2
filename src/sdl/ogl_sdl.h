@@ -14,7 +14,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 //-----------------------------------------------------------------------------
-/// \file
+/// \file ogl_sdl.h
 /// \brief SDL specific part of the OpenGL API for SRB2
 
 #include "../v_video.h"
@@ -22,14 +22,9 @@
 extern void *GLUhandle;
 
 boolean OglSdlSurface(INT32 w, INT32 h);
-
 void OglSdlFinishUpdate(boolean vidwait);
 
 extern SDL_Renderer *renderer;
 extern SDL_GLContext sdlglcontext;
 extern Uint16      realwidth;
 extern Uint16      realheight;
-
-#ifdef _CREATE_DLL_
-EXPORT void HWRAPI( OglSdlSetPalette ) (RGBA_t *palette);
-#endif

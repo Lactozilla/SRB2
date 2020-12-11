@@ -45,7 +45,7 @@
 
 #define  _CREATE_DLL_  // necessary for Unix AND Windows
 #include "../../doomdef.h"
-#include "../hw_drv.h"
+#include "../hw_gpu.h"
 
 // ==========================================================================
 //                                                                DEFINITIONS
@@ -74,7 +74,6 @@ extern FILE             *gllogstream;
 //                                                                     PROTOS
 // ==========================================================================
 
-boolean LoadGL(void);
 void *GetGLFunc(const char *proc);
 boolean SetupGLfunc(void);
 void SetupGLFunc4(void);
@@ -127,5 +126,7 @@ extern GLint            GPUScreenWidth;
 extern GLint            GPUScreenHeight;
 extern GLbyte           GPUScreenDepth;
 extern GLint            GPUMaximumAnisotropy;
+
+extern struct GPURenderingAPI GLInterfaceAPI;
 
 #endif

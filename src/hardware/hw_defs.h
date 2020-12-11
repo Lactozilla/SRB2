@@ -31,6 +31,8 @@
 #define GPU_DEFAULTMIX 0x00000000
 #define GPU_DEFAULTFOG 0xFF000000
 
+#define SCREENVERTS 10
+
 // RGBA Color components with float type ranging [ 0 ... 1 ]
 struct FRGBAFloat
 {

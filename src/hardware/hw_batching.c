@@ -69,7 +69,7 @@ void HWR_SetCurrentTexture(HWRTexture_t *texture)
     }
     else
     {
-        HWD.pfnSetTexture(texture);
+        GPU->SetTexture(texture);
     }
 }
 
@@ -124,8 +124,8 @@ void HWR_ProcessPolygon(FSurfaceInfo *pSurf, FOutVector *pOutVerts, UINT32 iNumP
 	else
 	{
         if (shader)
-            HWD.pfnSetShader(shader);
-        HWD.pfnDrawPolygon(pSurf, pOutVerts, iNumPts, PolyFlags);
+            GPU->SetShader(shader);
+        GPU->DrawPolygon(pSurf, pOutVerts, iNumPts, PolyFlags);
     }
 }
 
@@ -274,13 +274,13 @@ void HWR_RenderBatches(void)
 
 	if (cv_glshaders.value && gl_shadersavailable)
 	{
-		HWD.pfnSetShader(currentShader);
+		GPU->SetShader(currentShader);
 	}
 
 	if (currentPolyFlags & PF_NoTexture)
 		currentTexture = NULL;
     else
-	    HWD.pfnSetTexture(currentTexture);
+	    GPU->SetTexture(currentTexture);
 
 	while (1)// note: remember handling notexture polyflag as having texture number 0 (also in comparePolygons)
 	{
@@ -395,7 +395,7 @@ void HWR_RenderBatches(void)
 		if (changeState || stopFlag)
 		{
 			// execute draw call
-            HWD.pfnDrawIndexedTriangles(&currentSurfaceInfo, finalVertexArray, finalIndexWritePos, currentPolyFlags, finalVertexIndexArray);
+			GPU->DrawIndexedTriangles(&currentSurfaceInfo, finalVertexArray, finalIndexWritePos, currentPolyFlags, finalVertexIndexArray);
 			// update stats
 			ps_hw_numcalls++;
 			ps_hw_numverts += finalIndexWritePos;
@@ -411,7 +411,7 @@ void HWR_RenderBatches(void)
 		// change state according to change bools and next vars, update current vars and reset bools
 		if (changeShader)
 		{
-			HWD.pfnSetShader(nextShader);
+			GPU->SetShader(nextShader);
 			currentShader = nextShader;
 			changeShader = false;
 
@@ -420,7 +420,7 @@ void HWR_RenderBatches(void)
 		if (changeTexture)
 		{
 			// texture should be already ready for use from calls to SetTexture during batch collection
-		    HWD.pfnSetTexture(nextTexture);
+			GPU->SetTexture(nextTexture);
 			currentTexture = nextTexture;
 			changeTexture = false;
 

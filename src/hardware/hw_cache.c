@@ -14,7 +14,7 @@
 
 #ifdef HWRENDER
 #include "hw_glob.h"
-#include "hw_drv.h"
+#include "hw_gpu.h"
 #include "hw_batching.h"
 
 #include "../doomstat.h"    //gamemode
@@ -599,7 +599,7 @@ void HWR_FreeTexture(patch_t *patch)
 		if (grPatch->texture)
 		{
 			if (vid.glstate == VID_GL_LIBRARY_LOADED)
-				HWD.pfnDeleteTexture(grPatch->texture);
+				GPU->DeleteTexture(grPatch->texture);
 			if (grPatch->texture->data)
 				Z_Free(grPatch->texture->data);
 			Z_Free(grPatch->texture);
@@ -650,7 +650,7 @@ void HWR_FreeTextureColormaps(patch_t *patch)
 		next->data = NULL;
 
 		if (vid.glstate == VID_GL_LIBRARY_LOADED)
-			HWD.pfnDeleteTexture(next);
+			GPU->DeleteTexture(next);
 
 		// Free the old colormap texture from memory.
 		free(next);
@@ -684,7 +684,7 @@ static void FreeTextureCache(boolean freeall)
 
 void HWR_ClearAllTextures(void)
 {
-	HWD.pfnClearTextureCache(); // free references to the textures
+	GPU->ClearTextureCache(); // free references to the textures
 	FreeTextureCache(true);
 }
 
@@ -703,7 +703,7 @@ void HWR_InitMapTextures(void)
 
 static void FreeMapTexture(GLMapTexture_t *tex)
 {
-	HWD.pfnDeleteTexture(&tex->texture);
+	GPU->DeleteTexture(&tex->texture);
 	if (tex->texture.data)
 		Z_Free(tex->texture.data);
 	tex->texture.data = NULL;
@@ -748,7 +748,7 @@ void HWR_LoadMapTextures(size_t pnumtextures)
 
 void HWR_SetPalette(RGBA_t *palette)
 {
-	HWD.pfnSetPalette(palette);
+	GPU->SetPalette(palette);
 
 	// hardware driver will flush there own cache if cache is non paletized
 	// now flush data texture cache so 32 bit texture are recomputed
@@ -780,7 +780,7 @@ GLMapTexture_t *HWR_GetTexture(INT32 tex)
 
 	// If hardware does not have the texture, then call pfnSetTexture to upload it
 	if (!grtex->texture.downloaded)
-		HWD.pfnSetTexture(&grtex->texture);
+		GPU->SetTexture(&grtex->texture);
 	HWR_SetCurrentTexture(&grtex->texture);
 
 	// The system-memory data can be purged now.
@@ -868,7 +868,7 @@ void HWR_LiterallyGetFlat(lumpnum_t flatlumpnum)
 
 	// If hardware does not have the texture, then call pfnSetTexture to upload it
 	if (!hwrtex->downloaded)
-		HWD.pfnSetTexture(hwrtex);
+		GPU->SetTexture(hwrtex);
 	HWR_SetCurrentTexture(hwrtex);
 
 	// The system-memory data can be purged now.
@@ -905,7 +905,7 @@ void HWR_GetLevelFlat(levelflat_t *levelflat)
 
 		// If hardware does not have the texture, then call pfnSetTexture to upload it
 		if (!grtex->texture.downloaded)
-			HWD.pfnSetTexture(&grtex->texture);
+			GPU->SetTexture(&grtex->texture);
 		HWR_SetCurrentTexture(&grtex->texture);
 
 		// The system-memory data can be purged now.
@@ -955,7 +955,7 @@ void HWR_GetLevelFlat(levelflat_t *levelflat)
 		}
 
 		// Tell the hardware driver to bind the current texture to the flat's texture
-		HWD.pfnSetTexture(texture);
+		GPU->SetTexture(texture);
 	}
 #endif
 	else // set no texture
@@ -973,7 +973,7 @@ static void HWR_LoadPatchTexture(patch_t *patch, HWRTexture_t *hwrTexture)
 
 	// If hardware does not have the texture, then call pfnSetTexture to upload it
 	if (!hwrTexture->downloaded)
-		HWD.pfnSetTexture(hwrTexture);
+		GPU->SetTexture(hwrTexture);
 	HWR_SetCurrentTexture(hwrTexture);
 
 	// The system-memory data can be purged now.
@@ -1167,7 +1167,7 @@ patch_t *HWR_GetPic(lumpnum_t lumpnum)
 		grPatch->texture->flags = 0;
 		grPatch->max_s = grPatch->max_t = 1.0f;
 	}
-	HWD.pfnSetTexture(grPatch->texture);
+	GPU->SetTexture(grPatch->texture);
 	//CONS_Debug(DBG_RENDER, "picloaded at %x as texture %d\n",grPatch->texture->data, grPatch->texture->downloaded);
 
 	return patch;
@@ -1283,7 +1283,7 @@ void HWR_GetFadeMask(lumpnum_t fademasklumpnum)
 	if (!hwrtex->downloaded && !hwrtex->data)
 		HWR_CacheFadeMask(hwrtex, fademasklumpnum);
 
-	HWD.pfnSetTexture(hwrtex);
+	GPU->SetTexture(hwrtex);
 
 	// The system-memory data can be purged now.
 	Z_ChangeTag(hwrtex->data, PU_HWRCACHE_UNLOCKED);

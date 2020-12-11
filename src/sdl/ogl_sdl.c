@@ -84,7 +84,7 @@ void *GetGLFunc(const char *proc)
 	return SDL_GL_GetProcAddress(proc);
 }
 
-boolean LoadGL(void)
+boolean VID_LoadGPUAPI(void)
 {
 #ifndef STATIC_OPENGL
 	const char *OGLLibname = NULL;
@@ -108,7 +108,7 @@ boolean LoadGL(void)
 	GLULibname = "GLU32.DLL";
 #elif defined (__MACH__)
 	GLULibname = "/System/Library/Frameworks/OpenGL.framework/Libraries/libGLU.dylib";
-#elif defined (macintos)
+#elif defined (macintosh)
 	GLULibname = "OpenGLLibrary";
 #elif defined (__unix__)
 	GLULibname = "libGLU.so.1";
@@ -125,7 +125,7 @@ boolean LoadGL(void)
 	{
 		GLUhandle = hwOpen(GLULibname);
 		if (GLUhandle)
-			return SetupGLfunc();
+			return true;
 		else
 		{
 			CONS_Alert(CONS_ERROR, "Could not load GLU Library: %s\n", GLULibname);
@@ -138,8 +138,9 @@ boolean LoadGL(void)
 		CONS_Alert(CONS_ERROR, "Could not load GLU Library\n");
 		CONS_Alert(CONS_ERROR, "If you know what is the GLU library's name, use -GLUlib\n");
 	}
+
+	return true;
 #endif
-	return SetupGLfunc();
 }
 
 /**	\brief	The OglSdlSurface function
@@ -228,17 +229,6 @@ void OglSdlFinishUpdate(boolean waitvbl)
 	// Sryder:	We need to draw the final screen texture again into the other buffer in the original position so that
 	//			effects that want to take the old screen can do so after this
 	HWR_DrawScreenFinalTexture(realwidth, realheight);
-}
-
-EXPORT void HWRAPI(OglSdlSetPalette) (RGBA_t *palette)
-{
-	size_t palsize = (sizeof(RGBA_t) * 256);
-	// on a palette change, you have to reload all of the textures
-	if (memcmp(&GPUTexturePalette, palette, palsize))
-	{
-		memcpy(&GPUTexturePalette, palette, palsize);
-		Flush();
-	}
 }
 
 #endif //HWRENDER

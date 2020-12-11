@@ -25,7 +25,7 @@
 #include "../fastcmp.h"
 
 #ifdef HWRENDER
-#include "hw_drv.h"
+#include "hw_gpu.h"
 #include "hw_light.h"
 #include "hw_md2.h"
 #include "../d_main.h"
@@ -418,7 +418,7 @@ static void md2_loadTexture(md2_t *model)
 			image++;
 		}
 	}
-	HWD.pfnSetTexture(grPatch->texture);
+	GPU->SetTexture(grPatch->texture);
 }
 
 // -----------------+
@@ -472,7 +472,7 @@ static void md2_loadBlendTexture(md2_t *model)
 		grPatch->texture->width = (UINT16)w;
 		grPatch->texture->height = (UINT16)h;
 	}
-	HWD.pfnSetTexture(grPatch->texture); // We do need to do this so that it can be cleared and knows to recreate it when necessary
+	GPU->SetTexture(grPatch->texture); // We do need to do this so that it can be cleared and knows to recreate it when necessary
 
 	Z_Free(filename);
 }
@@ -1089,7 +1089,7 @@ static void HWR_GetBlendedTexture(patch_t *patch, patch_t *blendpatch, INT32 ski
 	if (blendpatch == NULL || colormap == colormaps || colormap == NULL)
 	{
 		// Don't do any blending
-		HWD.pfnSetTexture(grPatch->texture);
+		GPU->SetTexture(grPatch->texture);
 		return;
 	}
 
@@ -1097,7 +1097,7 @@ static void HWR_GetBlendedTexture(patch_t *patch, patch_t *blendpatch, INT32 ski
 		&& (patch->width != blendpatch->width || patch->height != blendpatch->height))
 	{
 		// Blend image exists, but it's bad.
-		HWD.pfnSetTexture(grPatch->texture);
+		GPU->SetTexture(grPatch->texture);
 		return;
 	}
 
@@ -1110,7 +1110,7 @@ static void HWR_GetBlendedTexture(patch_t *patch, patch_t *blendpatch, INT32 ski
 		{
 			if (hwrTexture->downloaded && hwrTexture->data)
 			{
-				HWD.pfnSetTexture(hwrTexture); // found the colormap, set it to the correct texture
+				GPU->SetTexture(hwrTexture); // found the colormap, set it to the correct texture
 				Z_ChangeTag(hwrTexture->data, PU_HWRMODELTEXTURE_UNLOCKED);
 				return;
 			}
@@ -1127,7 +1127,7 @@ static void HWR_GetBlendedTexture(patch_t *patch, patch_t *blendpatch, INT32 ski
 
 	HWR_CreateBlendedTexture(patch, blendpatch, newTexture, skinnum, color);
 
-	HWD.pfnSetTexture(newTexture);
+	GPU->SetTexture(newTexture);
 	Z_ChangeTag(newTexture->data, PU_HWRMODELTEXTURE_UNLOCKED);
 }
 
@@ -1407,7 +1407,7 @@ boolean HWR_DrawModel(gl_vissprite_t *spr)
 				// note down the max_s and max_t that end up in the VBO
 				md2->model->vbo_max_s = md2->model->max_s;
 				md2->model->vbo_max_t = md2->model->max_t;
-				HWD.pfnCreateModelVBOs(md2->model);
+				GPU->CreateModelVBOs(md2->model);
 			}
 			else
 			{
@@ -1417,7 +1417,7 @@ boolean HWR_DrawModel(gl_vissprite_t *spr)
 			}
 		}
 
-		//HWD.pfnSetBlend(blend); // This seems to actually break translucency?
+		//GPU->SetBlend(blend); // This seems to actually break translucency?
 		finalscale = md2->scale;
 		//Hurdler: arf, I don't like that implementation at all... too much crappy
 
@@ -1624,8 +1624,8 @@ boolean HWR_DrawModel(gl_vissprite_t *spr)
 		p.mirror = atransform.mirror; // from Kart
 #endif
 
-		HWD.pfnSetShader(SHADER_MODEL);	// model shader
-		HWD.pfnDrawModel(md2->model, frame, durs, tics, nextFrame, &p, finalscale, flip, hflip, &Surf);
+		GPU->SetShader(SHADER_MODEL);	// model shader
+		GPU->DrawModel(md2->model, frame, durs, tics, nextFrame, &p, finalscale, flip, hflip, &Surf);
 	}
 
 	return true;
