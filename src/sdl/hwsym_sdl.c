@@ -61,10 +61,11 @@
 
 	\return	void
 */
-//
+
 void *hwSym(const char *funcName,void *handle)
 {
 	void *funcPointer = NULL;
+	if (0) ;
 #ifdef STATIC3DS
 	GETFUNC(Startup);
 	GETFUNC(AddSfx);

@@ -75,9 +75,11 @@
 #include "../r_main.h"
 #include "../lua_hook.h"
 #include "sdlmain.h"
+
 #ifdef HWRENDER
 #include "../hardware/hw_main.h"
 #include "../hardware/hw_gpu.h"
+#include "../hardware/r_glcommon/r_glcommon.h"
 // For dynamic referencing of HW rendering functions
 #include "hwsym_sdl.h"
 #include "ogl_sdl.h"
@@ -1477,20 +1479,23 @@ static SDL_bool Impl_CreateContext(void)
 
 void VID_CheckGLLoaded(rendermode_t oldrender)
 {
-	(void)oldrender;
 #ifdef HWRENDER
-	if (vid.glstate == VID_GL_LIBRARY_ERROR) // Well, it didn't work the first time anyway.
-	{
-		CONS_Alert(CONS_ERROR, "OpenGL never loaded\n");
+	if (vid.glstate != VID_GL_LIBRARY_ERROR)
+		return;
+
+	// Well, it didn't work the first time anyway.
+	if (chosenrendermode == render_opengl) // fallback to software
+		rendermode = render_soft;
+	else
 		rendermode = oldrender;
-		if (chosenrendermode == render_opengl) // fallback to software
-			rendermode = render_soft;
-		if (setrenderneeded)
-		{
-			CV_StealthSetValue(&cv_renderer, oldrender);
-			setrenderneeded = 0;
-		}
+
+	if (setrenderneeded)
+	{
+		CV_StealthSetValue(&cv_renderer, oldrender);
+		setrenderneeded = 0;
 	}
+#else
+	(void)oldrender;
 #endif
 }
 
@@ -1854,7 +1859,7 @@ void VID_StartupOpenGL(void)
 
 		GPUInterface_Load(&GPU);
 
-		if (VID_LoadGPUAPI() && GPU->Init())
+		if (GLBackend_LoadLibrary() && GPU->Init())
 			vid.glstate = VID_GL_LIBRARY_LOADED;
 		else
 		{

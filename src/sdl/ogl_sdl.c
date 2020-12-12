@@ -72,7 +72,7 @@ PFNglGetString pglGetString;
 void *GLUhandle = NULL;
 SDL_GLContext sdlglcontext = 0;
 
-void *GetGLFunc(const char *proc)
+void *GLBackend_GetFunction(const char *proc)
 {
 	if (strncmp(proc, "glu", 3) == 0)
 	{
@@ -84,7 +84,7 @@ void *GetGLFunc(const char *proc)
 	return SDL_GL_GetProcAddress(proc);
 }
 
-boolean VID_LoadGPUAPI(void)
+boolean GLBackend_LoadLibrary(void)
 {
 #ifndef STATIC_OPENGL
 	const char *OGLLibname = NULL;
@@ -99,7 +99,7 @@ boolean VID_LoadGPUAPI(void)
 					"Falling back to Software mode.\n", SDL_GetError());
 		if (!M_CheckParm("-OGLlib"))
 			CONS_Printf("If you know what is the OpenGL library's name, use -OGLlib\n");
-		return 0;
+		return false;
 	}
 
 #if 0
@@ -154,46 +154,15 @@ boolean VID_LoadGPUAPI(void)
 boolean OglSdlSurface(INT32 w, INT32 h)
 {
 	INT32 cbpp = cv_scr_depth.value < 16 ? 16 : cv_scr_depth.value;
-	static boolean first_init = false;
 
-	if (!first_init)
-	{
-		GLVersion = pglGetString(GL_VERSION);
-		GLRenderer = pglGetString(GL_RENDERER);
-		GLExtensions = pglGetString(GL_EXTENSIONS);
+	GLBackend_InitContext();
+	GLBackend_LoadContextFunctions();
 
-		GL_DBG_Printf("OpenGL %s\n", GLVersion);
-		GL_DBG_Printf("GPU: %s\n", GLRenderer);
-		GL_DBG_Printf("Extensions: %s\n", GLExtensions);
-
-		if (strcmp((const char*)GLRenderer, "GDI Generic") == 0 &&
-			strcmp((const char*)GLVersion, "1.1.0") == 0)
-		{
-			// Oh no... Windows gave us the GDI Generic rasterizer, so something is wrong...
-			// The game will crash later on when unsupported OpenGL commands are encountered.
-			// Instead of a nondescript crash, show a more informative error message.
-			// Also set the renderer variable back to software so the next launch won't
-			// repeat this error.
-			CV_StealthSet(&cv_renderer, "Software");
-			I_Error("OpenGL Error: Failed to access the GPU. There may be an issue with your graphics drivers.");
-		}
-	}
-	first_init = true;
-
-	if (isExtAvailable("GL_EXT_texture_filter_anisotropic", GLExtensions))
-		pglGetIntegerv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &GPUMaximumAnisotropy);
-	else
-		GPUMaximumAnisotropy = 1;
-
-	SetupGLFunc4();
+	SetSurface(w, h);
 
 	glanisotropicmode_cons_t[1].value = GPUMaximumAnisotropy;
 
 	SDL_GL_SetSwapInterval(cv_vidwait.value ? 1 : 0);
-
-	SetModelView(w, h);
-	SetStates();
-	pglClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
 	HWR_Startup();
 	GPUTextureFormat = cbpp > 16 ? GL_RGBA : GL_RGB5_A1;
@@ -224,7 +193,7 @@ void OglSdlFinishUpdate(boolean waitvbl)
 	HWR_DrawScreenFinalTexture(sdlw, sdlh);
 	SDL_GL_SwapWindow(window);
 
-	GClipRect(0, 0, realwidth, realheight, NZCLIP_PLANE);
+	GPU->GClipRect(0, 0, realwidth, realheight, NZCLIP_PLANE);
 
 	// Sryder:	We need to draw the final screen texture again into the other buffer in the original position so that
 	//			effects that want to take the old screen can do so after this

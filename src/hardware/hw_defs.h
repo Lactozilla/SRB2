@@ -31,8 +31,6 @@
 #define GPU_DEFAULTMIX 0x00000000
 #define GPU_DEFAULTFOG 0xFF000000
 
-#define SCREENVERTS 10
-
 // RGBA Color components with float type ranging [ 0 ... 1 ]
 struct FRGBAFloat
 {
@@ -212,6 +210,9 @@ enum EFilterMode
 	GPU_TEXFILTER_MIXED3,
 };
 
+// Vertex count for post processing effects
+#define GPU_POSTIMGVERTS 10
+
 #ifdef GL_SHADERS
 // Predefined shader types
 enum
@@ -225,6 +226,11 @@ enum
 	SHADER_WATER,
 	SHADER_FOG,
 	SHADER_SKY,
+
+#ifdef HAVE_GLES2
+	SHADER_FADEMASK,
+	SHADER_FADEMASK_ADDITIVEANDSUBTRACTIVE,
+#endif
 
 	NUMBASESHADERS,
 };

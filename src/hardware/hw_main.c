@@ -6518,7 +6518,7 @@ void HWR_DoPostProcessor(player_t *player)
 	if (*type == postimg_water || *type == postimg_heat)
 	{
 		// 10 by 10 grid. 2 coordinates (xy)
-		float v[SCREENVERTS][SCREENVERTS][2];
+		float v[GPU_POSTIMGVERTS][GPU_POSTIMGVERTS][2];
 		static double disStart = 0;
 		UINT8 x, y;
 		INT32 WAVELENGTH;
@@ -6539,13 +6539,13 @@ void HWR_DoPostProcessor(player_t *player)
 			FREQUENCY = 4; // Lower is faster
 		}
 
-		for (x = 0; x < SCREENVERTS; x++)
+		for (x = 0; x < GPU_POSTIMGVERTS; x++)
 		{
-			for (y = 0; y < SCREENVERTS; y++)
+			for (y = 0; y < GPU_POSTIMGVERTS; y++)
 			{
 				// Change X position based on its Y position.
-				v[x][y][0] = (x/((float)(SCREENVERTS-1.0f)/9.0f))-4.5f + (float)sin((disStart+(y*WAVELENGTH))/FREQUENCY)/AMPLITUDE;
-				v[x][y][1] = (y/((float)(SCREENVERTS-1.0f)/9.0f))-4.5f;
+				v[x][y][0] = (x/((float)(GPU_POSTIMGVERTS-1.0f)/9.0f))-4.5f + (float)sin((disStart+(y*WAVELENGTH))/FREQUENCY)/AMPLITUDE;
+				v[x][y][1] = (y/((float)(GPU_POSTIMGVERTS-1.0f)/9.0f))-4.5f;
 			}
 		}
 		GPU->PostImgRedraw(v);
