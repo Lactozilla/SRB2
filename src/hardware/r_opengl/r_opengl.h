@@ -13,29 +13,9 @@
 #ifndef _R_OPENGL_H_
 #define _R_OPENGL_H_
 
-#ifdef HAVE_SDL
-#define _MATH_DEFINES_DEFINED
-
-#ifdef _MSC_VER
-#pragma warning(disable : 4214 4244)
-#endif
-
-#ifndef HAVE_GLES2
-#include "SDL_opengl.h" //Alam_GBC: Simple, yes?
-#endif
-
-#ifdef _MSC_VER
-#pragma warning(default : 4214 4244)
-#endif
-
-#else
-#include <GL/gl.h>
-#include <GL/glu.h>
-
-#ifdef STATIC_OPENGL // Because of the 1.3 functions, you'll need GLext to compile it if static
+#if !defined(HAVE_SDL) && defined(STATIC_OPENGL) // Because of the 1.3 functions, you'll need GLext to compile it if static
 #define GL_GLEXT_PROTOTYPES
 #include <GL/glext.h>
-#endif
 #endif
 
 #define  _CREATE_DLL_  // necessary for Unix AND Windows

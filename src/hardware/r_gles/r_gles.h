@@ -1,38 +1,33 @@
 // SONIC ROBO BLAST 2
 //-----------------------------------------------------------------------------
 // Copyright (C) 2020 by Jaime "Lactozilla" Passos.
+// Copyright (C) 1998-2000 by DooM Legacy Team.
+// Copyright (C) 1998-2020 by Sonic Team Junior.
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
-/// \file hw_gpu.c
-/// \brief GPU low-level interface API
+/// \file r_gles.h
+/// \brief OpenGL ES API for Sonic Robo Blast 2
 
-#ifdef HWRENDER
+#ifndef _R_GLES_H_
+#define _R_GLES_H_
 
-#include "r_opengl/r_opengl.h"
+#define GL_GLEXT_PROTOTYPES
+
+#include "r_gleslib.h"
+
+#define _CREATE_DLL_
+#undef DEBUG_TO_FILE
+
+#include "../../doomdef.h"
+#include "../hw_gpu.h"
 
 // ==========================================================================
-// the hardware driver object
+//                                                                DEFINITIONS
 // ==========================================================================
-struct GPURenderingAPI *GPU = NULL;
 
-void GPUInterface_Load(struct GPURenderingAPI **api)
-{
-	*api = &GLInterfaceAPI;
-}
+#include "../r_glcommon/r_glcommon.h"
 
-const char *GPUInterface_GetAPIName(void)
-{
-	return
-#if defined(HAVE_GLES2)
-	"OpenGL ES 2.0";
-#elif defined(HAVE_GLES)
-	"OpenGL ES 1.1";
-#else
-	"OpenGL";
 #endif
-}
-
-#endif // HWRENDER

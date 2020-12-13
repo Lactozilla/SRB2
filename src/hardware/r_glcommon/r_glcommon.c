@@ -1,13 +1,13 @@
 // SONIC ROBO BLAST 2
 //-----------------------------------------------------------------------------
-// Copyright (C) 1998-2020 by Sonic Team Junior.
+// Copyright (C) 2020 by Jaime "Lactozilla" Passos.
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
 /// \file r_glcommon.c
-/// \brief Common OpenGL functions shared by OpenGL backends
+/// \brief Common OpenGL functions shared by all of the OpenGL backends
 
 #include "r_glcommon.h"
 
@@ -53,6 +53,7 @@ GLuint WipeEndTexture = 0;
 UINT32 CurrentPolyFlags;
 
 GLboolean MipmappingEnabled = GL_FALSE;
+GLboolean MipmappingSupported = GL_FALSE;
 GLboolean ModelLightingEnabled = GL_FALSE;
 
 GLint MipmapMinFilter = GL_LINEAR;
@@ -70,6 +71,7 @@ boolean GLExtension_vertex_buffer_object;
 boolean GLExtension_texture_filter_anisotropic;
 boolean GLExtension_vertex_program;
 boolean GLExtension_fragment_program;
+boolean GLExtension_framebuffer_object;
 boolean GLExtension_shaders; // Not an extension on its own, but it is set if multiple extensions are available.
 
 static FExtensionList const ExtensionList[] = {
@@ -79,6 +81,7 @@ static FExtensionList const ExtensionList[] = {
 	{"GL_EXT_texture_filter_anisotropic", &GLExtension_texture_filter_anisotropic},
 	{"GL_ARB_vertex_program", &GLExtension_vertex_program},
 	{"GL_ARB_fragment_program", &GLExtension_fragment_program},
+	{"GL_ARB_framebuffer_object", &GLExtension_framebuffer_object},
 	{NULL, NULL}
 };
 
@@ -150,20 +153,16 @@ PFNglClientActiveTexture pglClientActiveTexture;
 // Mipmapping
 //
 
-#ifdef HAVE_GLES
 PFNglGenerateMipmap pglGenerateMipmap;
-#endif
 
 //
 // Depth functions
 //
-#ifndef HAVE_GLES
-	PFNglClearDepth pglClearDepth;
-	PFNglDepthRange pglDepthRange;
-#else
-	PFNglClearDepthf pglClearDepthf;
-	PFNglDepthRangef pglDepthRangef;
-#endif
+PFNglClearDepth pglClearDepth;
+PFNglDepthRange pglDepthRange;
+
+PFNglClearDepthf pglClearDepthf;
+PFNglDepthRangef pglDepthRangef;
 
 //
 // Legacy functions
@@ -202,11 +201,8 @@ PFNglTexEnvi pglTexEnvi;
 #endif // HAVE_GLES2
 
 // Color
-#ifdef HAVE_GLES
 PFNglColor4f pglColor4f;
-#else
 PFNglColor4ubv pglColor4ubv;
-#endif
 
 /* 1.5 functions for buffers */
 PFNglGenBuffers pglGenBuffers;
@@ -221,8 +217,16 @@ PFNglBlendEquation pglBlendEquation;
 //                                                                  FUNCTIONS
 // ==========================================================================
 
+#ifdef GL_SHADERS
+static boolean ShadersInit = false;
+#endif
+
 boolean GLBackend_Init(void)
 {
+#if defined(__ANDROID__)
+	GLBackend_InitContext();
+#endif
+	GPUTextureFormat = GL_RGBA;
 	return GLBackend_LoadFunctions();
 }
 
@@ -237,6 +241,7 @@ boolean GLBackend_InitContext(void)
 		pglGetIntegerv(GL_MINOR_VERSION, &GLMinorVersion);
 
 		GL_DBG_Printf("OpenGL %s\n", GLVersion);
+		GL_DBG_Printf("Specification: %s\n", GPUInterface_GetAPIName());
 		GL_DBG_Printf("Version: %d.%d\n", GLMajorVersion, GLMinorVersion);
 		GL_DBG_Printf("GPU: %s\n", GLRenderer);
 
@@ -261,16 +266,25 @@ boolean GLBackend_InitContext(void)
 	return true;
 }
 
+boolean GLBackend_InitShaders(void)
+{
+#ifdef GL_SHADERS
+	if (ShadersInit)
+		return true;
+
+	Shader_LoadFunctions();
+
+	if (!Shader_Compile())
+		return false;
+
+	ShadersInit = true;
+#endif
+
+	return true;
+}
+
 boolean GLBackend_LoadCommonFunctions(void)
 {
-#define GETOPENGLFUNC(func) \
-	p ## gl ## func = GLBackend_GetFunction("gl" #func); \
-	if (!(p ## gl ## func)) \
-	{ \
-		GL_MSG_Error("failed to get OpenGL function: %s", #func); \
-		return false; \
-	} \
-
 	GETOPENGLFUNC(ClearColor)
 
 	GETOPENGLFUNC(Clear)
@@ -327,12 +341,12 @@ boolean GLBackend_LoadLegacyFunctions(void)
 	GETOPENGLFUNC(Lightfv)
 	GETOPENGLFUNC(LightModelfv)
 	GETOPENGLFUNC(Materialfv)
+
+	GETOPENGLFUNC(TexEnvi)
 #endif
 
 	return true;
 }
-
-#undef GETOPENGLFUNC
 
 INT32 GLBackend_GetShaderType(INT32 type)
 {
@@ -344,7 +358,108 @@ INT32 GLBackend_GetShaderType(INT32 type)
 		return SHADER_MODEL_LIGHTING;
 #endif
 
+#ifdef HAVE_GLES2
+	if (ShadersAllowed == GPU_SHADEROPTION_OFF)
+	{
+		switch (type)
+		{
+			case SHADER_FLOOR:
+			case SHADER_WALL:
+			case SHADER_SPRITE:
+			case SHADER_MODEL:
+			case SHADER_MODEL_LIGHTING:
+			case SHADER_WATER:
+			case SHADER_FOG:
+			case SHADER_SKY:
+				return SHADER_DEFAULT;
+			default:
+				break;
+		}
+	}
+#endif
+
 	return type;
+}
+
+void GLState_SetSurface(INT32 w, INT32 h)
+{
+	GPU->SetModelView(w, h);
+	GPU->SetInitialStates();
+	pglClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
+void GLState_SetPalette(RGBA_t *palette)
+{
+	size_t palsize = (sizeof(RGBA_t) * 256);
+	// on a palette change, you have to reload all of the textures
+	if (memcmp(&GPUTexturePalette, palette, palsize))
+	{
+		memcpy(&GPUTexturePalette, palette, palsize);
+		GLTexture_Flush();
+	}
+}
+
+// Sets the texture filtering mode.
+void GLState_SetFilterMode(INT32 mode)
+{
+	switch (mode)
+	{
+		case GPU_TEXFILTER_TRILINEAR:
+			MipmapMinFilter = GL_LINEAR_MIPMAP_LINEAR;
+			MipmapMagFilter = GL_LINEAR;
+			MipmappingEnabled = GL_TRUE;
+			break;
+		case GPU_TEXFILTER_BILINEAR:
+			MipmapMinFilter = MipmapMagFilter = GL_LINEAR;
+			MipmappingEnabled = GL_FALSE;
+			break;
+		case GPU_TEXFILTER_POINTSAMPLED:
+			MipmapMinFilter = MipmapMagFilter = GL_NEAREST;
+			MipmappingEnabled = GL_FALSE;
+			break;
+		case GPU_TEXFILTER_MIXED1:
+			MipmapMinFilter = GL_NEAREST;
+			MipmapMagFilter = GL_LINEAR;
+			MipmappingEnabled = GL_FALSE;
+			break;
+		case GPU_TEXFILTER_MIXED2:
+			MipmapMinFilter = GL_LINEAR;
+			MipmapMagFilter = GL_NEAREST;
+			MipmappingEnabled = GL_FALSE;
+			break;
+		case GPU_TEXFILTER_MIXED3:
+			MipmapMinFilter = GL_LINEAR_MIPMAP_LINEAR;
+			MipmapMagFilter = GL_NEAREST;
+			MipmappingEnabled = GL_TRUE;
+			break;
+		default:
+			MipmapMagFilter = GL_LINEAR;
+			MipmapMinFilter = GL_NEAREST;
+	}
+}
+
+void GLState_SetClamp(GLenum pname)
+{
+#ifndef HAVE_GLES
+	pglTexParameteri(GL_TEXTURE_2D, pname, GL_CLAMP); // fallback clamp
+#endif
+	pglTexParameteri(GL_TEXTURE_2D, pname, GL_CLAMP_TO_EDGE);
+}
+
+void GLState_SetDepthBuffer(void)
+{
+	// Hurdler: all that are permanent states
+	if (pglClearDepthf)
+		pglClearDepthf(1.0f);
+	else
+		pglClearDepth(1.0f);
+
+	if (pglDepthRangef)
+		pglDepthRangef(0.0f, 1.0f);
+	else
+		pglDepthRange(0.0f, 1.0f);
+
+	pglDepthFunc(GL_LEQUAL);
 }
 
 static void SetBlendEquation(GLenum mode)
@@ -405,7 +520,7 @@ static void SetBlendMode(UINT32 flags)
 			break;
 	}
 
-	// Alpha test
+	// Alpha testing
 	switch (flags)
 	{
 		case PF_Masked & PF_Blending:
@@ -432,7 +547,7 @@ static void SetBlendMode(UINT32 flags)
 // PF_Masked - we could use an ALPHA_TEST of GL_EQUAL, and alpha ref of 0,
 //             is it faster when pixels are discarded ?
 
-void SetBlendingStates(UINT32 PolyFlags)
+void GLState_SetBlend(UINT32 PolyFlags)
 {
 	UINT32 Xor = CurrentPolyFlags^PolyFlags;
 
@@ -470,7 +585,7 @@ void SetBlendingStates(UINT32 PolyFlags)
 		if (Xor & PF_RemoveYWrap)
 		{
 			if (PolyFlags & PF_RemoveYWrap)
-				SetClamp(GL_TEXTURE_WRAP_T);
+				GLState_SetClamp(GL_TEXTURE_WRAP_T);
 		}
 
 		if (Xor & PF_ForceWrapX)
@@ -523,18 +638,51 @@ void SetBlendingStates(UINT32 PolyFlags)
 		}
 		if (PolyFlags & PF_NoTexture)
 		{
-			SetNoTexture();
+			GLTexture_SetNoTexture();
 		}
 	}
 
 	CurrentPolyFlags = PolyFlags;
 }
 
-void SetSurface(INT32 w, INT32 h)
+void GLState_SetColor(const GLfloat red, const GLfloat green, const GLfloat blue, const GLfloat alpha)
 {
-	SetModelView(w, h);
-	SetStates();
-	pglClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#if defined(__ANDROID__)
+	if (pglColor4f)
+		pglColor4f(red, green, blue, alpha);
+	else if (pglColor4ubv)
+#endif
+	{
+		GLubyte color[4];
+
+		color[0] = (unsigned char)(red * 255);
+		color[1] = (unsigned char)(green * 255);
+		color[2] = (unsigned char)(blue * 255);
+		color[3] = (unsigned char)(alpha * 255);
+
+		pglColor4ubv(color);
+	}
+}
+
+void GLState_SetColorUBV(const GLubyte *v)
+{
+#if defined(__ANDROID__)
+	if (pglColor4f)
+	{
+		INT32 i = 0;
+		GLfloat color[4];
+
+		for (; i < 4; i++)
+		{
+			color[i] = byte2float(*v);
+			v++;
+		}
+
+		pglColor4f(color[0], color[1], color[2], color[3]);
+	}
+	else if (pglColor4ubv)
+#endif
+		pglColor4ubv(v);
 }
 
 void GLExtension_Init(void)
@@ -821,6 +969,266 @@ void GLModel_GenerateVBOs(model_t *model)
 	}
 }
 
+// Sets the current texture.
+void GLTexture_Set(HWRTexture_t *pTexInfo)
+{
+	if (!pTexInfo)
+	{
+		GLTexture_SetNoTexture();
+		return;
+	}
+	else if (pTexInfo->downloaded)
+	{
+		if (pTexInfo->downloaded != CurrentTexture)
+		{
+			pglBindTexture(GL_TEXTURE_2D, pTexInfo->downloaded);
+			CurrentTexture = pTexInfo->downloaded;
+		}
+	}
+	else
+	{
+		FTextureInfo *newTex = calloc(1, sizeof (*newTex));
+
+		GPU->UpdateTexture(pTexInfo);
+
+		newTex->texture = pTexInfo;
+		newTex->name = (UINT32)pTexInfo->downloaded;
+		newTex->width = (UINT32)pTexInfo->width;
+		newTex->height = (UINT32)pTexInfo->height;
+		newTex->format = (UINT32)pTexInfo->format;
+
+		// insertion at the tail
+		if (TexCacheTail)
+		{
+			newTex->prev = TexCacheTail;
+			TexCacheTail->next = newTex;
+			TexCacheTail = newTex;
+		}
+		else // initialization of the linked list
+			TexCacheTail = TexCacheHead = newTex;
+	}
+}
+
+// Deletes a single texture.
+void GLTexture_Delete(HWRTexture_t *pTexInfo)
+{
+	FTextureInfo *head = TexCacheHead;
+
+	while (head)
+	{
+		if (head->name == pTexInfo->downloaded)
+		{
+			if (head->next)
+				head->next->prev = head->prev;
+			if (head->prev)
+				head->prev->next = head->next;
+			free(head);
+			break;
+		}
+
+		head = head->next;
+	}
+}
+
+// Updates a texture.
+void GLTexture_Update(HWRTexture_t *pTexInfo)
+{
+	boolean update = true;
+	static RGBA_t textureBuffer[2048 * 2048];
+	const GLvoid *pTextureBuffer = textureBuffer;
+	GLuint textureName = 0;
+
+	if (!pTexInfo->downloaded)
+	{
+		pglGenTextures(1, &textureName);
+		pTexInfo->downloaded = textureName;
+		update = false;
+	}
+	else
+		textureName = pTexInfo->downloaded;
+
+	if (pTexInfo->format == GPU_TEXFMT_RGBA)
+		pTextureBuffer = pTexInfo->data;
+	else if ((pTexInfo->format == GPU_TEXFMT_P_8) || (pTexInfo->format == GPU_TEXFMT_AP_88))
+		GLTexture_WritePalette(pTexInfo, textureBuffer);
+	else if (pTexInfo->format == GPU_TEXFMT_ALPHA_INTENSITY_88)
+		GLTexture_WriteLuminanceAlpha(pTexInfo, textureBuffer);
+	else if (pTexInfo->format == GPU_TEXFMT_ALPHA_8) // Used for fade masks
+	{
+#ifdef HAVE_GLES2
+		GLTexture_WriteFadeMaskR(pTexInfo, textureBuffer);
+#else
+		GLTexture_WriteFadeMaskA(pTexInfo, textureBuffer);
+#endif
+	}
+	else
+		GL_MSG_Warning("GLTexture_Update: bad format %d\n", pTexInfo->format);
+
+	// the texture number was already generated by pglGenTextures
+	pglBindTexture(GL_TEXTURE_2D, textureName);
+	CurrentTexture = textureName;
+
+	// disable texture filtering on any texture that has holes so there's no dumb borders or blending issues
+	if (pTexInfo->flags & TF_TRANSPARENT)
+	{
+		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	}
+	else
+	{
+		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, MipmapMagFilter);
+		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, MipmapMinFilter);
+	}
+
+#ifdef HAVE_GLES
+	GLTexture_UploadData(pTexInfo, pTextureBuffer, GPUTextureFormat, update);
+#else
+	if (pTexInfo->format == GPU_TEXFMT_ALPHA_INTENSITY_88)
+		GLTexture_UploadData(pTexInfo, pTextureBuffer, GL_LUMINANCE_ALPHA, update);
+	else if (pTexInfo->format == GPU_TEXFMT_ALPHA_8)
+		GLTexture_UploadData(pTexInfo, pTextureBuffer, GL_ALPHA, update);
+	else
+		GLTexture_UploadData(pTexInfo, pTextureBuffer, GPUTextureFormat, update);
+#endif
+
+	if (pTexInfo->flags & TF_WRAPX)
+		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	else
+		GLState_SetClamp(GL_TEXTURE_WRAP_S);
+
+	if (pTexInfo->flags & TF_WRAPY)
+		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	else
+		GLState_SetClamp(GL_TEXTURE_WRAP_T);
+
+	if (GLExtension_texture_filter_anisotropic && GPUMaximumAnisotropy)
+		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, AnisotropicFilter);
+
+	if (GLTexture_CanGenerateMipmaps(pTexInfo) && pglGenerateMipmap)
+		pglGenerateMipmap(GL_TEXTURE_2D);
+}
+
+// Uploads texture data.
+void GLTexture_UploadData(HWRTexture_t *pTexInfo, const GLvoid *pTextureBuffer, GLenum format, boolean update)
+{
+	INT32 w = pTexInfo->width;
+	INT32 h = pTexInfo->height;
+
+#ifndef HAVE_GLES
+	if (GLTexture_CanGenerateMipmaps(pTexInfo) && !pglGenerateMipmap)
+		pglTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
+#endif
+
+	if (update)
+		pglTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pTextureBuffer);
+	else
+		pglTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pTextureBuffer);
+}
+
+// Writes a palettized texture.
+void GLTexture_WritePalette(HWRTexture_t *pTexInfo, RGBA_t *textureBuffer)
+{
+	const GLubyte *pImgData = (const GLubyte *)pTexInfo->data;
+	INT32 w = pTexInfo->width;
+	INT32 h = pTexInfo->height;
+	INT32 i, j;
+
+	for (j = 0; j < h; j++)
+	{
+		for (i = 0; i < w; i++)
+		{
+			if ((*pImgData == GPU_PATCHES_CHROMAKEY_COLORINDEX) && (pTexInfo->flags & TF_CHROMAKEYED))
+			{
+				textureBuffer[w*j+i].s.red   = 0;
+				textureBuffer[w*j+i].s.green = 0;
+				textureBuffer[w*j+i].s.blue  = 0;
+				textureBuffer[w*j+i].s.alpha = 0;
+				pTexInfo->flags |= TF_TRANSPARENT; // there is a hole in it
+			}
+			else
+			{
+				textureBuffer[w*j+i].s.red   = GPUTexturePalette[*pImgData].s.red;
+				textureBuffer[w*j+i].s.green = GPUTexturePalette[*pImgData].s.green;
+				textureBuffer[w*j+i].s.blue  = GPUTexturePalette[*pImgData].s.blue;
+				textureBuffer[w*j+i].s.alpha = GPUTexturePalette[*pImgData].s.alpha;
+			}
+
+			pImgData++;
+
+			if (pTexInfo->format == GPU_TEXFMT_AP_88)
+			{
+				if (!(pTexInfo->flags & TF_CHROMAKEYED))
+					textureBuffer[w*j+i].s.alpha = *pImgData;
+				pImgData++;
+			}
+		}
+	}
+}
+
+// Writes a texture where every pixel is a luminance/alpha pair.
+void GLTexture_WriteLuminanceAlpha(HWRTexture_t *pTexInfo, RGBA_t *textureBuffer)
+{
+	const GLubyte *pImgData = (const GLubyte *)pTexInfo->data;
+	INT32 w = pTexInfo->width;
+	INT32 h = pTexInfo->height;
+	INT32 i, j;
+
+	for (j = 0; j < h; j++)
+	{
+		for (i = 0; i < w; i++)
+		{
+			textureBuffer[w*j+i].s.red   = *pImgData;
+			textureBuffer[w*j+i].s.green = *pImgData;
+			textureBuffer[w*j+i].s.blue  = *pImgData;
+			pImgData++;
+			textureBuffer[w*j+i].s.alpha = *pImgData;
+			pImgData++;
+		}
+	}
+}
+
+// Writes a fade mask texture where every pixel is stored in the alpha channel.
+void GLTexture_WriteFadeMaskA(HWRTexture_t *pTexInfo, RGBA_t *textureBuffer)
+{
+	const GLubyte *pImgData = (const GLubyte *)pTexInfo->data;
+	INT32 w = pTexInfo->width;
+	INT32 h = pTexInfo->height;
+	INT32 i, j;
+
+	for (j = 0; j < h; j++)
+	{
+		for (i = 0; i < w; i++)
+		{
+			textureBuffer[w*j+i].s.red   = 255; // 255 because the fade mask is modulated with the screen texture, so alpha affects it while the colours don't
+			textureBuffer[w*j+i].s.green = 255;
+			textureBuffer[w*j+i].s.blue  = 255;
+			textureBuffer[w*j+i].s.alpha = *pImgData;
+			pImgData++;
+		}
+	}
+}
+
+// Writes a fade mask texture where every pixel is stored in the red channel.
+void GLTexture_WriteFadeMaskR(HWRTexture_t *pTexInfo, RGBA_t *textureBuffer)
+{
+	const GLubyte *pImgData = (const GLubyte *)pTexInfo->data;
+	INT32 w = pTexInfo->width;
+	INT32 h = pTexInfo->height;
+	INT32 i, j;
+
+	for (j = 0; j < h; j++)
+	{
+		for (i = 0; i < w; i++)
+		{
+			textureBuffer[w*j+i].s.red   = *pImgData;
+			textureBuffer[w*j+i].s.green = 255;
+			textureBuffer[w*j+i].s.blue  = 255;
+			textureBuffer[w*j+i].s.alpha = 255;
+			pImgData++;
+		}
+	}
+}
+
 // Deletes all textures.
 void GLTexture_Flush(void)
 {
@@ -846,88 +1254,25 @@ void GLTexture_Flush(void)
 	CurrentTexture = 0;
 }
 
-// Sets texture filtering mode.
-void GLTexture_SetFilterMode(INT32 mode)
+// Binds the current texture to a 1x1 white pixel.
+void GLTexture_SetNoTexture(void)
 {
-	switch (mode)
+	// Disable texture.
+	if (CurrentTexture != BlankTexture)
 	{
-		case GPU_TEXFILTER_TRILINEAR:
-			MipmapMinFilter = GL_LINEAR_MIPMAP_LINEAR;
-			MipmapMagFilter = GL_LINEAR;
-			MipmappingEnabled = GL_TRUE;
-			break;
-		case GPU_TEXFILTER_BILINEAR:
-			MipmapMinFilter = MipmapMagFilter = GL_LINEAR;
-			MipmappingEnabled = GL_FALSE;
-			break;
-		case GPU_TEXFILTER_POINTSAMPLED:
-			MipmapMinFilter = MipmapMagFilter = GL_NEAREST;
-			MipmappingEnabled = GL_FALSE;
-			break;
-		case GPU_TEXFILTER_MIXED1:
-			MipmapMinFilter = GL_NEAREST;
-			MipmapMagFilter = GL_LINEAR;
-			MipmappingEnabled = GL_FALSE;
-			break;
-		case GPU_TEXFILTER_MIXED2:
-			MipmapMinFilter = GL_LINEAR;
-			MipmapMagFilter = GL_NEAREST;
-			MipmappingEnabled = GL_FALSE;
-			break;
-		case GPU_TEXFILTER_MIXED3:
-			MipmapMinFilter = GL_LINEAR_MIPMAP_LINEAR;
-			MipmapMagFilter = GL_NEAREST;
-			MipmappingEnabled = GL_TRUE;
-			break;
-		default:
-			MipmapMagFilter = GL_LINEAR;
-			MipmapMinFilter = GL_NEAREST;
-	}
-}
-
-// Deletes a single texture.
-void GLTexture_Delete(HWRTexture_t *pTexInfo)
-{
-	FTextureInfo *head = TexCacheHead;
-
-	while (head)
-	{
-		if (head->name == pTexInfo->downloaded)
+		if (BlankTexture == 0)
 		{
-			if (head->next)
-				head->next->prev = head->prev;
-			if (head->prev)
-				head->prev->next = head->next;
-			free(head);
-			break;
+			// Generate a 1x1 white pixel for the blank texture
+			UINT8 white[4] = {255, 255, 255, 255};
+			pglGenTextures(1, &BlankTexture);
+			pglBindTexture(GL_TEXTURE_2D, BlankTexture);
+			pglTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
 		}
+		else
+			pglBindTexture(GL_TEXTURE_2D, BlankTexture);
 
-		head = head->next;
+		CurrentTexture = BlankTexture;
 	}
-}
-
-// Calculates total memory usage by textures, excluding mipmaps.
-INT32 GLTexture_GetMemoryUsage(FTextureInfo *head)
-{
-	INT32 res = 0;
-
-	while (head)
-	{
-		// Figure out the correct bytes-per-pixel for this texture
-		// This follows format2bpp in hw_cache.c
-		INT32 bpp = 1;
-		UINT32 format = head->format;
-		if (format == GPU_TEXFMT_RGBA)
-			bpp = 4;
-		else if (format == GPU_TEXFMT_ALPHA_INTENSITY_88 || format == GPU_TEXFMT_AP_88)
-			bpp = 2;
-
-		// Add it up!
-		res += head->height*head->width*bpp;
-		head = head->next;
-	}
-
-	return res;
 }
 
 // Generates a screen texture.
@@ -951,14 +1296,66 @@ void GLTexture_GenerateScreenTexture(GLuint *name)
 	{
 		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		SetClamp(GL_TEXTURE_WRAP_S);
-		SetClamp(GL_TEXTURE_WRAP_T);
+		GLState_SetClamp(GL_TEXTURE_WRAP_S);
+		GLState_SetClamp(GL_TEXTURE_WRAP_T);
 		pglCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 0, 0, texsize, texsize, 0);
 	}
 	else
 		pglCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, texsize, texsize);
 
 	CurrentTexture = *name;
+}
+
+// Sryder:	This needs to be called whenever the screen changes resolution in order to reset the screen textures to use
+//			a new size
+void GLTexture_FlushScreenTextures(void)
+{
+	pglDeleteTextures(1, &ScreenTexture);
+	pglDeleteTextures(1, &FinalScreenTexture);
+	pglDeleteTextures(1, &WipeStartTexture);
+	pglDeleteTextures(1, &WipeEndTexture);
+
+	ScreenTexture = FinalScreenTexture = 0;
+	WipeStartTexture = WipeEndTexture = 0;
+}
+
+// Initializes mipmapping.
+boolean GLTexture_InitMipmapping(void)
+{
+	if (GLExtension_framebuffer_object)
+		pglGenerateMipmap = GLBackend_GetFunction("glGenerateMipmap");
+
+	return (pglGenerateMipmap != NULL);
+}
+
+// Returns true if the texture can have mipmaps generated for it.
+boolean GLTexture_CanGenerateMipmaps(HWRTexture_t *pTexInfo)
+{
+	return (MipmappingEnabled && !(pTexInfo->flags & TF_TRANSPARENT));
+}
+
+// Calculates total memory usage by textures, excluding mipmaps.
+int GLTexture_GetMemoryUsage(FTextureInfo *head)
+{
+	int res = 0;
+
+	while (head)
+	{
+		// Figure out the correct bytes-per-pixel for this texture
+		// This follows format2bpp in hw_cache.c
+		INT32 bpp = 1;
+		UINT32 format = head->format;
+		if (format == GPU_TEXFMT_RGBA)
+			bpp = 4;
+		else if (format == GPU_TEXFMT_ALPHA_INTENSITY_88 || format == GPU_TEXFMT_AP_88)
+			bpp = 2;
+
+		// Add it up!
+		res += head->height*head->width*bpp;
+		head = head->next;
+	}
+
+	return res;
 }
 
 // -----------------+

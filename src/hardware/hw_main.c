@@ -6203,6 +6203,9 @@ void HWR_RenderPlayerView(INT32 viewnumber, player_t *player)
 
 	GPU->SetTransform(NULL);
 	GPU->UnSetShader();
+#ifdef HAVE_GLES
+	GPU->SetBlend(PF_Modulated|PF_Translucent|PF_NoDepthTest);
+#endif
 
 	HWR_DoPostProcessor(player);
 
@@ -6242,7 +6245,7 @@ static CV_PossibleValue_t glshearing_cons_t[] = {{0, "Off"}, {1, "On"}, {2, "Thi
 static void CV_glfiltermode_OnChange(void);
 static void CV_glanisotropic_OnChange(void);
 
-static CV_PossibleValue_t glfiltermode_cons_t[]= {{GPU_TEXFILTER_POINTSAMPLED, "Nearest"},
+static CV_PossibleValue_t glfiltermode_cons_t[] = {{GPU_TEXFILTER_POINTSAMPLED, "Nearest"},
 	{GPU_TEXFILTER_BILINEAR, "Bilinear"}, {GPU_TEXFILTER_TRILINEAR, "Trilinear"},
 	{GPU_TEXFILTER_MIXED1, "Linear_Nearest"},
 	{GPU_TEXFILTER_MIXED2, "Nearest_Linear"},
@@ -6623,8 +6626,16 @@ void HWR_DoWipe(UINT8 wipenum, UINT8 scrnnum)
 
 void HWR_DoTintedWipe(UINT8 wipenum, UINT8 scrnnum)
 {
+#ifdef HAVE_GLES2
+	if (!HWR_WipeCheck(wipenum, scrnnum))
+		return;
+
+	HWR_GetFadeMask(wipelumpnum);
+	GPU->DoTintedWipe((wipestyleflags & WSF_FADEIN), (wipestyleflags & WSF_TOWHITE));
+#else
 	// It does the same thing
 	HWR_DoWipe(wipenum, scrnnum);
+#endif
 }
 
 void HWR_MakeScreenFinalTexture(void)
@@ -6666,6 +6677,10 @@ FShaderReferenceArray shaderxlat[] =
 	{"WaterRipple", SHADER_WATER},
 	{"Fog", SHADER_FOG},
 	{"Sky", SHADER_SKY},
+#ifdef HAVE_GLES2
+	{"Wipe", SHADER_FADEMASK},
+	{"WipeAdditiveAndSubtractive", SHADER_FADEMASK_ADDITIVEANDSUBTRACTIVE},
+#endif
 	{NULL, 0},
 };
 
@@ -6748,7 +6763,13 @@ skip_lump:
 
 			for (i = 0; shaderxlat[i].type; i++)
 			{
-				if (!stricmp(shaderxlat[i].type, stoken))
+				FShaderReferenceArray *xlat = &shaderxlat[i];
+				INT32 id = xlat->id;
+
+				if (id < SHADER_LEVEL_FIRST || id > SHADER_LEVEL_LAST)
+					continue;
+
+				if (!stricmp(xlat->type, stoken))
 				{
 					size_t shader_size;
 					char *shader_source;
@@ -6781,7 +6802,7 @@ skip_lump:
 					shader_source = Z_Malloc(shader_size, PU_STATIC, NULL);
 					W_ReadLumpPwad(wadnum, shader_lumpnum, shader_source);
 
-					GPU->LoadCustomShader(shaderxlat[i].id, shader_source, shader_size, (shadertype == 2));
+					GPU->LoadCustomShader(id, shader_source, shader_size, (shadertype == 2));
 
 					Z_Free(shader_source);
 					Z_Free(shader_lumpname);

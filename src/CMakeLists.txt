@@ -255,6 +255,10 @@ else()
 endif()
 set(SRB2_CONFIG_HWRENDER ON CACHE BOOL
 	"Enable hardware rendering through OpenGL.")
+set(SRB2_CONFIG_HAVE_GLES ON CACHE BOOL
+	"Enable hardware rendering through OpenGL ES 1.1.")
+set(SRB2_CONFIG_HAVE_GLES2 ON CACHE BOOL
+	"Enable hardware rendering through OpenGL ES 2.0.")
 set(SRB2_CONFIG_USEASM OFF CACHE BOOL
 	"Enable NASM tmap implementation for software mode speedup.")
 set(SRB2_CONFIG_YASM OFF CACHE BOOL
@@ -529,17 +533,33 @@ if(${SRB2_CONFIG_HWRENDER})
 	)
 
 	set(SRB2_R_OPENGL_SOURCES
-		${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_opengl/r_opengl.c
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/shaders/gl_shaders.c
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_glcommon/r_glcommon.c
 	)
 
 	set(SRB2_R_OPENGL_HEADERS
-		${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_opengl/r_opengl.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/shaders/gl_shaders.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_glcommon/r_glcommon.h
 	)
 
+endif()
+
+if(${SRB2_CONFIG_HAVE_GLES})
+	set(SRB2_HAVE_GLES ON)
+	set(SRB2_HWRENDER_HEADERS ${SRB2_HWRENDER_HEADERS} ${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_gles/r_gles.h)
+	set(SRB2_HWRENDER_HEADERS ${SRB2_HWRENDER_HEADERS} ${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_gles/r_gleslib.h)
+	add_definitions(-DHAVE_GLES)
+	if(${SRB2_CONFIG_HAVE_GLES2})
+		set(SRB2_HAVE_GLES2 ON)
+		set(SRB2_HWRENDER_SOURCES ${SRB2_HWRENDER_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_gles/r_gles2.c)
+		set(SRB2_HWRENDER_HEADERS ${SRB2_HWRENDER_HEADERS} ${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_gles/lzml.h)
+		add_definitions(-DHAVE_GLES2)
+	else()
+		set(SRB2_HWRENDER_SOURCES ${SRB2_HWRENDER_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_gles/r_gles1.c)
+	endif()
+else()
+	set(SRB2_HWRENDER_SOURCES ${SRB2_HWRENDER_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_opengl/r_opengl.c)
+	set(SRB2_HWRENDER_HEADERS ${SRB2_HWRENDER_HEADERS} ${CMAKE_CURRENT_SOURCE_DIR}/hardware/r_opengl/r_opengl.h)
 endif()
 
 if(${SRB2_CONFIG_HWRENDER} AND ${SRB2_CONFIG_STATIC_OPENGL})

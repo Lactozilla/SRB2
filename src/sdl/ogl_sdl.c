@@ -36,11 +36,19 @@
 #include "../doomdef.h"
 
 #ifdef HWRENDER
+
+#ifdef HAVE_GLES
+#include "../hardware/r_gles/r_gles.h"
+#else
 #include "../hardware/r_opengl/r_opengl.h"
+#endif
+
 #include "../hardware/hw_main.h"
+
 #include "ogl_sdl.h"
-#include "../i_system.h"
 #include "hwsym_sdl.h"
+
+#include "../i_system.h"
 #include "../m_argv.h"
 
 #ifdef DEBUG_TO_FILE
@@ -52,19 +60,6 @@
 #endif
 #include <sys/types.h>
 #include <sys/stat.h>
-#endif
-
-#ifdef USE_WGL_SWAP
-PFNWGLEXTSWAPCONTROLPROC wglSwapIntervalEXT = NULL;
-#else
-typedef int (*PFNGLXSWAPINTERVALPROC) (int);
-PFNGLXSWAPINTERVALPROC glXSwapIntervalSGIEXT = NULL;
-#endif
-
-#ifndef STATIC_OPENGL
-PFNglClear pglClear;
-PFNglGetIntegerv pglGetIntegerv;
-PFNglGetString pglGetString;
 #endif
 
 /**	\brief SDL video display surface
@@ -81,12 +76,19 @@ void *GLBackend_GetFunction(const char *proc)
 		else
 			return NULL;
 	}
+
 	return SDL_GL_GetProcAddress(proc);
 }
 
 boolean GLBackend_LoadLibrary(void)
 {
-#ifndef STATIC_OPENGL
+#if defined(__ANDROID__)
+	if (SDL_GL_LoadLibrary(NULL) != 0)
+	{
+		CONS_Alert(CONS_ERROR, "Could not load OpenGL Library: %s\nFalling back to Software mode.\n", SDL_GetError());
+		return false;
+	}
+#elif !defined(STATIC_OPENGL)
 	const char *OGLLibname = NULL;
 	const char *GLULibname = NULL;
 
@@ -138,9 +140,9 @@ boolean GLBackend_LoadLibrary(void)
 		CONS_Alert(CONS_ERROR, "Could not load GLU Library\n");
 		CONS_Alert(CONS_ERROR, "If you know what is the GLU library's name, use -GLUlib\n");
 	}
+#endif
 
 	return true;
-#endif
 }
 
 /**	\brief	The OglSdlSurface function
@@ -153,19 +155,20 @@ boolean GLBackend_LoadLibrary(void)
 */
 boolean OglSdlSurface(INT32 w, INT32 h)
 {
-	INT32 cbpp = cv_scr_depth.value < 16 ? 16 : cv_scr_depth.value;
-
+#if !defined(__ANDROID__)
 	GLBackend_InitContext();
 	GLBackend_LoadContextFunctions();
+#ifdef HAVE_GLES2
+	GLBackend_InitShaders();
+#endif
+#endif
 
-	SetSurface(w, h);
+	GLState_SetSurface(w, h);
 
 	glanisotropicmode_cons_t[1].value = GPUMaximumAnisotropy;
-
 	SDL_GL_SetSwapInterval(cv_vidwait.value ? 1 : 0);
 
 	HWR_Startup();
-	GPUTextureFormat = cbpp > 16 ? GL_RGBA : GL_RGB5_A1;
 
 	return true;
 }

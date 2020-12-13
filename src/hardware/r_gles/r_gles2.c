@@ -7,58 +7,54 @@
 // terms of the GNU General Public License, version 2.
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
-/// \file r_opengl.c
-/// \brief OpenGL API for Sonic Robo Blast 2
-
-#if defined (_WIN32)
-#define RPC_NO_WINDOWS_H
-#include <windows.h>
-#endif
-#undef GETTEXT
-#ifdef __GNUC__
-#include <unistd.h>
-#endif
+/// \file r_gles2.c
+/// \brief OpenGL ES 2.0 API for Sonic Robo Blast 2
 
 #include <stdarg.h>
 #include <math.h>
-#include "r_opengl.h"
-#include "r_vbo.h"
+
+#include "r_gles.h"
+#include "../r_opengl/r_vbo.h"
 
 #include "../shaders/gl_shaders.h"
 
+#include "lzml.h"
+
 #if defined (HWRENDER) && !defined (NOROPENGL)
 
-static const GLubyte white[4] = { 255, 255, 255, 255 };
+static GLRGBAFloat white = {1.0f, 1.0f, 1.0f, 1.0f};
+static GLRGBAFloat black = {0.0f, 0.0f, 0.0f, 1.0f};
+
+// ==========================================================================
+//                                                                  CONSTANTS
+// ==========================================================================
+
+#define Deg2Rad(x) ((x) * ((float)M_PIl / 180.0f))
 
 // ==========================================================================
 //                                                                    GLOBALS
 // ==========================================================================
 
-// Hurdler: 04/10/2000: added for the kick ass coronas as Boris wanted;-)
-static GLfloat ModelMatrix[16];
-static GLfloat ProjectionMatrix[16];
-static GLint   SceneViewport[4];
+fmatrix4_t projMatrix;
+fmatrix4_t viewMatrix;
+fmatrix4_t modelMatrix;
+
+/* Drawing Functions */
+typedef void (R_GL_APIENTRY * PFNglEnableVertexAttribArray) (GLuint index);
+static PFNglEnableVertexAttribArray pglEnableVertexAttribArray;
+typedef void (R_GL_APIENTRY * PFNglDisableVertexAttribArray) (GLuint index);
+static PFNglDisableVertexAttribArray pglDisableVertexAttribArray;
+typedef void (R_GL_APIENTRY * PFNglVertexAttribPointer) (GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void * pointer);
+static PFNglVertexAttribPointer pglVertexAttribPointer;
 
 boolean GLBackend_LoadFunctions(void)
 {
-#ifndef STATIC_OPENGL
 	if (!GLBackend_LoadCommonFunctions())
 		return false;
 
-	GETOPENGLFUNC(ClearDepth)
-	GETOPENGLFUNC(DepthRange)
-
-	GETOPENGLFUNC(Color4ubv)
-
-	GETOPENGLFUNC(VertexPointer)
-	GETOPENGLFUNC(NormalPointer)
-	GETOPENGLFUNC(TexCoordPointer)
-	GETOPENGLFUNC(ColorPointer)
-	GETOPENGLFUNC(EnableClientState)
-	GETOPENGLFUNC(DisableClientState)
-
-	if (!GLBackend_LoadLegacyFunctions())
-		return false;
+#if defined(__ANDROID__)
+	GLBackend_LoadContextFunctions();
+	GLBackend_InitShaders();
 #endif
 
 	return true;
@@ -66,102 +62,33 @@ boolean GLBackend_LoadFunctions(void)
 
 boolean GLBackend_LoadContextFunctions(void)
 {
-	if (GLExtension_multitexture)
-	{
-		GETOPENGLFUNC(ActiveTexture)
-		GETOPENGLFUNC(ClientActiveTexture)
-	}
+	GETOPENGLFUNC(ActiveTexture)
 
-	if (GLExtension_vertex_buffer_object)
-	{
-		GETOPENGLFUNC(GenBuffers)
-		GETOPENGLFUNC(BindBuffer)
-		GETOPENGLFUNC(BufferData)
-		GETOPENGLFUNC(DeleteBuffers)
-	}
+	GETOPENGLFUNC(GenBuffers)
+	GETOPENGLFUNC(BindBuffer)
+	GETOPENGLFUNC(BufferData)
+	GETOPENGLFUNC(DeleteBuffers)
 
-	if (GLMajorVersion >= 2)
-		GETOPENGLFUNC(BlendEquation)
+	GETOPENGLFUNC(EnableVertexAttribArray)
+	GETOPENGLFUNC(DisableVertexAttribArray)
+	GETOPENGLFUNC(VertexAttribPointer)
+
+	GETOPENGLFUNC(BlendEquation)
+
+	GETOPENGLFUNCALT(ClearDepthf, ClearDepth)
+	GETOPENGLFUNCALT(DepthRangef, DepthRange)
 
 	if (GLTexture_InitMipmapping())
 		MipmappingSupported = GL_TRUE;
-
-#ifdef GL_SHADERS
-	if (GLExtension_shaders)
-		Shader_LoadFunctions();
-#endif
 
 	return true;
 }
 
 static void GLPerspective(GLfloat fovy, GLfloat aspect)
 {
-	GLfloat m[4][4] =
-	{
-		{ 1.0f, 0.0f, 0.0f, 0.0f},
-		{ 0.0f, 1.0f, 0.0f, 0.0f},
-		{ 0.0f, 0.0f, 1.0f,-1.0f},
-		{ 0.0f, 0.0f, 0.0f, 0.0f},
-	};
-	const GLfloat zNear = NearClippingPlane;
-	const GLfloat zFar = FAR_CLIPPING_PLANE;
-	const GLfloat radians = (GLfloat)(fovy / 2.0f * M_PIl / 180.0f);
-	const GLfloat sine = sin(radians);
-	const GLfloat deltaZ = zFar - zNear;
-	GLfloat cotangent;
-
-	if ((fabsf((float)deltaZ) < 1.0E-36f) || fpclassify(sine) == FP_ZERO || fpclassify(aspect) == FP_ZERO)
-	{
-		return;
-	}
-	cotangent = cosf(radians) / sine;
-
-	m[0][0] = cotangent / aspect;
-	m[1][1] = cotangent;
-	m[2][2] = -(zFar + zNear) / deltaZ;
-	m[3][2] = -2.0f * zNear * zFar / deltaZ;
-
-	pglMultMatrixf(&m[0][0]);
-}
-
-static void GLProject(GLfloat objX, GLfloat objY, GLfloat objZ,
-                      GLfloat* winX, GLfloat* winY, GLfloat* winZ)
-{
-	GLfloat in[4], out[4];
-	int i;
-
-	for (i=0; i<4; i++)
-	{
-		out[i] =
-			objX * ModelMatrix[0*4+i] +
-			objY * ModelMatrix[1*4+i] +
-			objZ * ModelMatrix[2*4+i] +
-			ModelMatrix[3*4+i];
-	}
-	for (i=0; i<4; i++)
-	{
-		in[i] =
-			out[0] * ProjectionMatrix[0*4+i] +
-			out[1] * ProjectionMatrix[1*4+i] +
-			out[2] * ProjectionMatrix[2*4+i] +
-			out[3] * ProjectionMatrix[3*4+i];
-	}
-	if (fpclassify(in[3]) == FP_ZERO) return;
-	in[0] /= in[3];
-	in[1] /= in[3];
-	in[2] /= in[3];
-	/* Map x, y and z to range 0-1 */
-	in[0] = in[0] * 0.5f + 0.5f;
-	in[1] = in[1] * 0.5f + 0.5f;
-	in[2] = in[2] * 0.5f + 0.5f;
-
-	/* Map x,y to viewport */
-	in[0] = in[0] * SceneViewport[2] + SceneViewport[0];
-	in[1] = in[1] * SceneViewport[3] + SceneViewport[1];
-
-	*winX=in[0];
-	*winY=in[1];
-	*winZ=in[2];
+	fmatrix4_t perspectiveMatrix;
+	lzml_matrix4_perspective(perspectiveMatrix, Deg2Rad((float)fovy), (float)aspect, NearClippingPlane, FAR_CLIPPING_PLANE);
+	lzml_matrix4_multiply(projMatrix, perspectiveMatrix);
 }
 
 // ==========================================================================
@@ -169,7 +96,7 @@ static void GLProject(GLfloat objX, GLfloat objY, GLfloat objZ,
 // ==========================================================================
 
 // -----------------+
-// Init             : Initializes the OpenGL interface API
+// Init             : Initializes the OpenGL ES interface API
 // -----------------+
 static boolean Init(void)
 {
@@ -181,48 +108,32 @@ static boolean Init(void)
 // -----------------+
 static void SetInitialStates(void)
 {
-#ifdef GL_LIGHT_MODEL_AMBIENT
-	GLfloat LightDiffuse[] = {1.0f, 1.0f, 1.0f, 1.0f};
-#endif
-
-	pglEnable(GL_TEXTURE_2D);	// two-dimensional texturing
-	pglTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-
-	pglEnable(GL_BLEND);		// enable color blending
+	pglEnable(GL_BLEND);
 	pglColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-	pglEnable(GL_ALPHA_TEST);
-	pglAlphaFunc(GL_NOTEQUAL, 0.0f);
-
-	pglEnable(GL_DEPTH_TEST);	// check the depth buffer
-	pglDepthMask(GL_TRUE);		// enable writing to depth buffer
+	pglEnable(GL_DEPTH_TEST);    // check the depth buffer
+	pglDepthMask(GL_TRUE);       // enable writing to depth buffer
 	GPU->SetDepthBuffer();
 
-	// Hurdler: not necessary, is it?
-	pglShadeModel(GL_SMOOTH);	// iterate vertex colors
+	pglBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	pglAlphaFunc(GL_NOTEQUAL, 0.0f);
 
 	// this sets CurrentPolyFlags to the actual configuration
 	CurrentPolyFlags = 0xFFFFFFFF;
 	GPU->SetBlend(0);
 
+	if (ShaderState.current)
+	{
+		pglEnableVertexAttribArray(Shader_AttribLoc(LOC_POSITION));
+		pglEnableVertexAttribArray(Shader_AttribLoc(LOC_TEXCOORD));
+	}
+
 	CurrentTexture = 0;
 	GLTexture_SetNoTexture();
-
-	pglPolygonOffset(-1.0f, -1.0f);
-
-	pglLoadIdentity();
-	pglScalef(1.0f, 1.0f, -1.0f);
-	pglGetFloatv(GL_MODELVIEW_MATRIX, ModelMatrix); // added for new coronas' code (without depth buffer)
-
-	// Lighting for models
-#ifdef GL_LIGHT_MODEL_AMBIENT
-	pglLightModelfv(GL_LIGHT_MODEL_AMBIENT, LightDiffuse);
-	pglEnable(GL_LIGHT0);
-#endif
 }
 
 // -----------------+
-// SetModelView     : Resets the viewport state
+// SetModelView     : Resets the viewport
 // -----------------+
 static void SetModelView(INT32 w, INT32 h)
 {
@@ -235,66 +146,36 @@ static void SetModelView(INT32 w, INT32 h)
 
 	pglViewport(0, 0, w, h);
 
-	pglMatrixMode(GL_PROJECTION);
-	pglLoadIdentity();
+	lzml_matrix4_identity(projMatrix);
+	lzml_matrix4_identity(viewMatrix);
+	lzml_matrix4_identity(modelMatrix);
 
-	pglMatrixMode(GL_MODELVIEW);
-	pglLoadIdentity();
-
-	GLPerspective(FIELD_OF_VIEW, ASPECT_RATIO);
-
-	// added for new coronas' code (without depth buffer)
-	pglGetIntegerv(GL_VIEWPORT, SceneViewport);
-	pglGetFloatv(GL_PROJECTION_MATRIX, ProjectionMatrix);
+	Shader_SetTransform();
 }
 
 // -----------------+
 // ReadRect         : Read a rectangle region of the truecolor framebuffer
-//                  : store pixels as 16bit 565 RGB
-// Returns          : 16bit 565 RGB pixel array stored in dst_data
+//                  : store pixels as RGBA8888
+// Returns          : RGBA8888 pixel array stored in dst_data
 // -----------------+
 static void ReadRect(INT32 x, INT32 y, INT32 width, INT32 height, INT32 dst_stride, UINT16 * dst_data)
 {
 	INT32 i;
-	if (dst_stride == width*3)
+	GLubyte*top = (GLvoid*)dst_data, *bottom = top + dst_stride * (height - 1);
+	GLubyte *row = malloc(dst_stride);
+	if (!row) return;
+	pglPixelStorei(GL_PACK_ALIGNMENT, 1);
+	pglReadPixels(x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, dst_data);
+	pglPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	for(i = 0; i < height/2; i++)
 	{
-		GLubyte*top = (GLvoid*)dst_data, *bottom = top + dst_stride * (height - 1);
-		GLubyte *row = malloc(dst_stride);
-		if (!row) return;
-		pglPixelStorei(GL_PACK_ALIGNMENT, 1);
-		pglReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, dst_data);
-		pglPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		for(i = 0; i < height/2; i++)
-		{
-			memcpy(row, top, dst_stride);
-			memcpy(top, bottom, dst_stride);
-			memcpy(bottom, row, dst_stride);
-			top += dst_stride;
-			bottom -= dst_stride;
-		}
-		free(row);
+		memcpy(row, top, dst_stride);
+		memcpy(top, bottom, dst_stride);
+		memcpy(bottom, row, dst_stride);
+		top += dst_stride;
+		bottom -= dst_stride;
 	}
-	else
-	{
-		INT32 j;
-		GLubyte *image = malloc(width*height*3*sizeof (*image));
-		if (!image) return;
-		pglPixelStorei(GL_PACK_ALIGNMENT, 1);
-		pglReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, image);
-		pglPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		for (i = height-1; i >= 0; i--)
-		{
-			for (j = 0; j < width; j++)
-			{
-				dst_data[(height-1-i)*width+j] =
-				(UINT16)(
-				                 ((image[(i*width+j)*3]>>3)<<11) |
-				                 ((image[(i*width+j)*3+1]>>2)<<5) |
-				                 ((image[(i*width+j)*3+2]>>3)));
-			}
-		}
-		free(image);
-	}
+	free(row);
 }
 
 // -----------------+
@@ -305,14 +186,11 @@ static void GClipRect(INT32 minx, INT32 miny, INT32 maxx, INT32 maxy, float near
 	pglViewport(minx, GPUScreenHeight-maxy, maxx-minx, maxy-miny);
 	NearClippingPlane = nearclip;
 
-	pglMatrixMode(GL_PROJECTION);
-	pglLoadIdentity();
-	GLPerspective(FIELD_OF_VIEW, ASPECT_RATIO);
-	pglMatrixMode(GL_MODELVIEW);
+	lzml_matrix4_identity(projMatrix);
+	lzml_matrix4_identity(viewMatrix);
+	lzml_matrix4_identity(modelMatrix);
 
-	// added for new coronas' code (without depth buffer)
-	pglGetIntegerv(GL_VIEWPORT, SceneViewport);
-	pglGetFloatv(GL_PROJECTION_MATRIX, ProjectionMatrix);
+	Shader_SetTransform();
 }
 
 // -----------------+
@@ -342,7 +220,7 @@ static void SetDepthBuffer(void)
 // -----------------+
 // ClearBuffer      : Clear the color/alpha/depth buffer(s)
 // -----------------+
-static void ClearBuffer(boolean ColorMask, boolean DepthMask, FRGBAFloat *ClearColor)
+static void ClearBuffer(boolean ColorMask, boolean DepthMask, FRGBAFloat * ClearColor)
 {
 	GLbitfield ClearMask = 0;
 
@@ -360,10 +238,13 @@ static void ClearBuffer(boolean ColorMask, boolean DepthMask, FRGBAFloat *ClearC
 	}
 
 	SetBlend(DepthMask ? PF_Occlude | CurrentPolyFlags : CurrentPolyFlags&~PF_Occlude);
-
 	pglClear(ClearMask);
-	pglEnableClientState(GL_VERTEX_ARRAY); // We always use this one
-	pglEnableClientState(GL_TEXTURE_COORD_ARRAY); // And mostly this one, too
+
+	if (ShaderState.current)
+	{
+		pglEnableVertexAttribArray(Shader_AttribLoc(LOC_POSITION));
+		pglEnableVertexAttribArray(Shader_AttribLoc(LOC_TEXCOORD));
+	}
 }
 
 // -----------------+
@@ -375,7 +256,12 @@ static void Draw2DLine(F2DCoord *v1, F2DCoord *v2, RGBA_t Color)
 	GLfloat dx, dy;
 	GLfloat angle;
 
-	pglDisable(GL_TEXTURE_2D);
+	GLRGBAFloat fcolor = {byte2float(Color.s.red), byte2float(Color.s.green), byte2float(Color.s.blue), byte2float(Color.s.alpha)};
+
+	if (ShaderState.current == NULL)
+		return;
+
+	GLTexture_SetNoTexture();
 
 	// This is the preferred, 'modern' way of rendering lines -- creating a polygon.
 	if (fabsf(v2->x - v1->x) > FLT_EPSILON)
@@ -390,13 +276,10 @@ static void Draw2DLine(F2DCoord *v1, F2DCoord *v2, RGBA_t Color)
 	p[6] = v2->x + dx;  p[7] = -(v2->y - dy); p[8] = 1;
 	p[9] = v1->x + dx;  p[10] = -(v1->y - dy); p[11] = 1;
 
-	pglDisableClientState(GL_TEXTURE_COORD_ARRAY);
-	GLState_SetColorUBV((GLubyte*)&Color.s);
-	pglVertexPointer(3, GL_FLOAT, 0, p);
-	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	Shader_SetUniforms(NULL, &fcolor, NULL, NULL);
 
-	pglEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	pglEnable(GL_TEXTURE_2D);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, 0, p);
+	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
 
 // -----------------+
@@ -441,26 +324,32 @@ static void ClearTextureCache(void)
 // the corona thing is there too, i have no idea if that stuff works with DrawIndexedTriangles and batching
 static void PreparePolygon(FSurfaceInfo *pSurf, FOutVector *pOutVerts, UINT32 PolyFlags)
 {
-	static GLRGBAFloat poly = {0,0,0,0};
-	static GLRGBAFloat tint = {0,0,0,0};
-	static GLRGBAFloat fade = {0,0,0,0};
+	GLRGBAFloat poly = {1.0f, 1.0f, 1.0f, 1.0f};
+	GLRGBAFloat tint = {1.0f, 1.0f, 1.0f, 1.0f};
+	GLRGBAFloat fade = {1.0f, 1.0f, 1.0f, 1.0f};
+
+	GLRGBAFloat *c_poly = NULL, *c_tint = NULL, *c_fade = NULL;
+
+	if (ShaderState.current)
+	{
+		pglEnableVertexAttribArray(Shader_AttribLoc(LOC_POSITION));
+		pglEnableVertexAttribArray(Shader_AttribLoc(LOC_TEXCOORD));
+	}
+
+	(void)pOutVerts;
+	if (PolyFlags & PF_Corona)
+		PolyFlags &= ~(PF_NoDepthTest|PF_Corona);
 
 	SetBlend(PolyFlags);    //TODO: inline (#pragma..)
 
-	// PolyColor
-	if (pSurf)
+	// If Modulated, mix the surface colour to the texture
+	if (pSurf && (CurrentPolyFlags & PF_Modulated))
 	{
-		// If Modulated, mix the surface colour to the texture
-		if (CurrentPolyFlags & PF_Modulated)
-		{
-			// Poly color
-			poly.red    = byte2float(pSurf->PolyColor.s.red);
-			poly.green  = byte2float(pSurf->PolyColor.s.green);
-			poly.blue   = byte2float(pSurf->PolyColor.s.blue);
-			poly.alpha  = byte2float(pSurf->PolyColor.s.alpha);
-
-			GLState_SetColorUBV((GLubyte*)&pSurf->PolyColor.s);
-		}
+		// Poly color
+		poly.red   = byte2float(pSurf->PolyColor.s.red);
+		poly.green = byte2float(pSurf->PolyColor.s.green);
+		poly.blue  = byte2float(pSurf->PolyColor.s.blue);
+		poly.alpha = byte2float(pSurf->PolyColor.s.alpha);
 
 		// Tint color
 		tint.red   = byte2float(pSurf->TintColor.s.red);
@@ -473,71 +362,15 @@ static void PreparePolygon(FSurfaceInfo *pSurf, FOutVector *pOutVerts, UINT32 Po
 		fade.green = byte2float(pSurf->FadeColor.s.green);
 		fade.blue  = byte2float(pSurf->FadeColor.s.blue);
 		fade.alpha = byte2float(pSurf->FadeColor.s.alpha);
+
+		c_poly = &poly;
+		c_tint = &tint;
+		c_fade = &fade;
 	}
+	else
+		c_poly = &white;
 
-	// this test is added for new coronas' code (without depth buffer)
-	// I think I should do a separate function for drawing coronas, so it will be a little faster
-	if (PolyFlags & PF_Corona) // check to see if we need to draw the corona
-	{
-		UINT32 i, j;
-
-		//rem: all 8 (or 8.0f) values are hard coded: it can be changed to a higher value
-		GLfloat buf[8][8];
-		GLfloat cx, cy, cz;
-		GLfloat px = 0.0f, py = 0.0f, pz = -1.0f;
-		GLfloat scalef = 0.0f;
-
-		GLubyte c[4];
-
-		float alpha;
-
-		cx = (pOutVerts[0].x + pOutVerts[2].x) / 2.0f; // we should change the coronas' ...
-		cy = (pOutVerts[0].y + pOutVerts[2].y) / 2.0f; // ... code so its only done once.
-		cz = pOutVerts[0].z;
-
-		// I dont know if this is slow or not
-		GLProject(cx, cy, cz, &px, &py, &pz);
-		//GL_DBG_Printf("Projection: (%f, %f, %f)\n", px, py, pz);
-
-		if ((pz <  0.0l) ||
-			(px < -8.0l) ||
-			(py < SceneViewport[1]-8.0l) ||
-			(px > SceneViewport[2]+8.0l) ||
-			(py > SceneViewport[1]+SceneViewport[3]+8.0l))
-			return;
-
-		// the damned slow glReadPixels functions :(
-		pglReadPixels((INT32)px-4, (INT32)py, 8, 8, GL_DEPTH_COMPONENT, GL_FLOAT, buf);
-		//GL_DBG_Printf("DepthBuffer: %f %f\n", buf[0][0], buf[3][3]);
-
-		for (i = 0; i < 8; i++)
-			for (j = 0; j < 8; j++)
-				scalef += (pz > buf[i][j]+0.00005f) ? 0 : 1;
-
-		// quick test for screen border (not 100% correct, but looks ok)
-		if (px < 4) scalef -= (GLfloat)(8*(4-px));
-		if (py < SceneViewport[1]+4) scalef -= (GLfloat)(8*(SceneViewport[1]+4-py));
-		if (px > SceneViewport[2]-4) scalef -= (GLfloat)(8*(4-(SceneViewport[2]-px)));
-		if (py > SceneViewport[1]+SceneViewport[3]-4) scalef -= (GLfloat)(8*(4-(SceneViewport[1]+SceneViewport[3]-py)));
-
-		scalef /= 64;
-		//GL_DBG_Printf("Scale factor: %f\n", scalef);
-
-		if (scalef < 0.05f)
-			return;
-
-		// GLubyte c[4];
-		c[0] = pSurf->PolyColor.s.red;
-		c[1] = pSurf->PolyColor.s.green;
-		c[2] = pSurf->PolyColor.s.blue;
-
-		alpha = byte2float(pSurf->PolyColor.s.alpha);
-		alpha *= scalef; // change the alpha value (it seems better than changing the size of the corona)
-		c[3] = (unsigned char)(alpha * 255);
-		GLState_SetColorUBV(c);
-	}
-
-	Shader_SetUniforms(pSurf, &poly, &tint, &fade);
+	Shader_SetUniforms(pSurf, c_poly, c_tint, c_fade);
 }
 
 // -----------------+
@@ -545,10 +378,16 @@ static void PreparePolygon(FSurfaceInfo *pSurf, FOutVector *pOutVerts, UINT32 Po
 // -----------------+
 static void DrawPolygon(FSurfaceInfo *pSurf, FOutVector *pOutVerts, UINT32 iNumPts, UINT32 PolyFlags)
 {
+	if (ShaderState.current == NULL)
+		return;
+
 	PreparePolygon(pSurf, pOutVerts, PolyFlags);
 
-	pglVertexPointer(3, GL_FLOAT, sizeof(FOutVector), &pOutVerts[0].x);
-	pglTexCoordPointer(2, GL_FLOAT, sizeof(FOutVector), &pOutVerts[0].s);
+	pglBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, sizeof(FOutVector), &pOutVerts[0].x);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, sizeof(FOutVector), &pOutVerts[0].s);
+
 	pglDrawArrays(GL_TRIANGLE_FAN, 0, iNumPts);
 
 	if (PolyFlags & PF_RemoveYWrap)
@@ -566,10 +405,16 @@ static void DrawPolygon(FSurfaceInfo *pSurf, FOutVector *pOutVerts, UINT32 iNumP
 // ---------------------+
 static void DrawIndexedTriangles(FSurfaceInfo *pSurf, FOutVector *pOutVerts, UINT32 iNumPts, UINT32 PolyFlags, UINT32 *IndexArray)
 {
+	if (ShaderState.current == NULL)
+		return;
+
 	PreparePolygon(pSurf, pOutVerts, PolyFlags);
 
-	pglVertexPointer(3, GL_FLOAT, sizeof(FOutVector), &pOutVerts[0].x);
-	pglTexCoordPointer(2, GL_FLOAT, sizeof(FOutVector), &pOutVerts[0].s);
+	pglBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, sizeof(FOutVector), &pOutVerts[0].x);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, sizeof(FOutVector), &pOutVerts[0].s);
+
 	pglDrawElements(GL_TRIANGLES, iNumPts, GL_UNSIGNED_INT, IndexArray);
 
 	// the DrawPolygon variant of this has some code about polyflags and wrapping here but havent noticed any problems from omitting it?
@@ -582,45 +427,51 @@ static void DrawSkyDome(FSkyDome *sky)
 {
 	int i, j;
 
+	fvector3_t scale;
+	scale[0] = scale[2] = 1.0f;
+
 	Shader_SetUniforms(NULL, NULL, NULL, NULL);
 
 	// Build the sky dome! Yes!
 	if (sky->rebuild)
 	{
-		if (GLExtension_vertex_buffer_object)
-		{
-			// delete VBO when already exists
-			if (sky->vbo)
-				pglDeleteBuffers(1, &sky->vbo);
+		// delete VBO when already exists
+		if (sky->vbo)
+			pglDeleteBuffers(1, &sky->vbo);
 
-			// generate a new VBO and get the associated ID
-			pglGenBuffers(1, &sky->vbo);
+		// generate a new VBO and get the associated ID
+		pglGenBuffers(1, &sky->vbo);
 
-			// bind VBO in order to use
-			pglBindBuffer(GL_ARRAY_BUFFER, sky->vbo);
+		// bind VBO in order to use
+		pglBindBuffer(GL_ARRAY_BUFFER, sky->vbo);
 
-			// upload data to VBO
-			pglBufferData(GL_ARRAY_BUFFER, sky->vertex_count * sizeof(sky->data[0]), sky->data, GL_STATIC_DRAW);
-		}
+		// upload data to VBO
+		pglBufferData(GL_ARRAY_BUFFER, sky->vertex_count * sizeof(sky->data[0]), sky->data, GL_STATIC_DRAW);
 
 		sky->rebuild = false;
 	}
 
+	if (ShaderState.current == NULL)
+	{
+		pglBindBuffer(GL_ARRAY_BUFFER, 0);
+		return;
+	}
+
 	// bind VBO in order to use
-	if (GLExtension_vertex_buffer_object)
-		pglBindBuffer(GL_ARRAY_BUFFER, sky->vbo);
+	pglBindBuffer(GL_ARRAY_BUFFER, sky->vbo);
 
 	// activate and specify pointers to arrays
-	pglVertexPointer(3, GL_FLOAT, sizeof(sky->data[0]), sky_vbo_x);
-	pglTexCoordPointer(2, GL_FLOAT, sizeof(sky->data[0]), sky_vbo_u);
-	pglColorPointer(4, GL_UNSIGNED_BYTE, sizeof(sky->data[0]), sky_vbo_r);
-
-	// activate color arrays
-	pglEnableClientState(GL_COLOR_ARRAY);
+	pglEnableVertexAttribArray(Shader_AttribLoc(LOC_COLORS));
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, sizeof(sky->data[0]), sky_vbo_x);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, sizeof(sky->data[0]), sky_vbo_u);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_COLORS), 4, GL_FLOAT, GL_FALSE, sizeof(sky->data[0]), sky_vbo_r);
 
 	// set transforms
-	pglScalef(1.0f, (float)sky->height / 200.0f, 1.0f);
-	pglRotatef(270.0f, 0.0f, 1.0f, 0.0f);
+	scale[1] = (float)sky->height / 200.0f;
+	lzml_matrix4_scale(viewMatrix, scale);
+	lzml_matrix4_rotate_y(viewMatrix, Deg2Rad(270.0f));
+
+	Shader_SetTransform();
 
 	for (j = 0; j < 2; j++)
 	{
@@ -648,15 +499,10 @@ static void DrawSkyDome(FSkyDome *sky)
 		}
 	}
 
-	pglScalef(1.0f, 1.0f, 1.0f);
-	GLState_SetColorUBV(white);
+	pglDisableVertexAttribArray(Shader_AttribLoc(LOC_COLORS));
 
 	// bind with 0, so, switch back to normal pointer operation
-	if (GLExtension_vertex_buffer_object)
-		pglBindBuffer(GL_ARRAY_BUFFER, 0);
-
-	// deactivate color array
-	pglDisableClientState(GL_COLOR_ARRAY);
+	pglBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
 static void SetState(INT32 State, INT32 Value)
@@ -668,7 +514,7 @@ static void SetState(INT32 State, INT32 Value)
 			break;
 
 		case GPU_STATE_SHADERS:
-			ShadersAllowed = Value;
+			ShadersAllowed = Value ? GL_TRUE : GL_FALSE;
 			break;
 
 		case GPU_STATE_TEXTUREFILTERMODE:
@@ -706,32 +552,28 @@ static void CreateModelVBOs(model_t *model)
 
 static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 tics, INT32 nextFrameIndex, FTransform *pos, float scale, UINT8 flipped, UINT8 hflipped, FSurfaceInfo *Surface)
 {
-	static GLRGBAFloat poly = {0,0,0,0};
-	static GLRGBAFloat tint = {0,0,0,0};
-	static GLRGBAFloat fade = {0,0,0,0};
+	static GLRGBAFloat poly = {1.0f, 1.0f, 1.0f, 1.0f};
+	static GLRGBAFloat tint = {1.0f, 1.0f, 1.0f, 1.0f};
+	static GLRGBAFloat fade = {1.0f, 1.0f, 1.0f, 1.0f};
 
 	float pol = 0.0f;
-	float scalex, scaley, scalez;
 
 	boolean useTinyFrames;
 
-	boolean useVBO = GLExtension_vertex_buffer_object;
+	boolean useVBO = true;
+
+	fvector3_t v_scale;
+	fvector3_t translate;
 
 	UINT32 flags;
 	int i;
 
-	// Because otherwise, scaling the screen negatively vertically breaks the lighting
-	GLfloat LightPos[] = {0.0f, 1.0f, 0.0f, 0.0f};
-#ifdef GL_LIGHT_MODEL_AMBIENT
-	GLfloat ambient[4];
-	GLfloat diffuse[4];
-#endif
+	if (ShaderState.current == NULL)
+		return;
 
 	// Affect input model scaling
 	scale *= 0.5f;
-	scalex = scale;
-	scaley = scale;
-	scalez = scale;
+	v_scale[0] = v_scale[1] = v_scale[2] = scale;
 
 	if (duration != 0 && duration != -1 && tics != -1) // don't interpolate if instantaneous or infinite in length
 	{
@@ -746,44 +588,10 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 			pol = 0.0f;
 	}
 
-	poly.red    = byte2float(Surface->PolyColor.s.red);
-	poly.green  = byte2float(Surface->PolyColor.s.green);
-	poly.blue   = byte2float(Surface->PolyColor.s.blue);
-	poly.alpha  = byte2float(Surface->PolyColor.s.alpha);
-
-#ifdef GL_LIGHT_MODEL_AMBIENT
-	if (ModelLightingEnabled)
-	{
-		if (!ShadersEnabled)
-		{
-			ambient[0] = poly.red;
-			ambient[1] = poly.green;
-			ambient[2] = poly.blue;
-			ambient[3] = poly.alpha;
-
-			diffuse[0] = poly.red;
-			diffuse[1] = poly.green;
-			diffuse[2] = poly.blue;
-			diffuse[3] = poly.alpha;
-
-			if (ambient[0] > 0.75f)
-				ambient[0] = 0.75f;
-			if (ambient[1] > 0.75f)
-				ambient[1] = 0.75f;
-			if (ambient[2] > 0.75f)
-				ambient[2] = 0.75f;
-
-			pglLightfv(GL_LIGHT0, GL_POSITION, LightPos);
-
-			pglEnable(GL_LIGHTING);
-			pglMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ambient);
-			pglMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, diffuse);
-		}
-		pglShadeModel(GL_SMOOTH);
-	}
-#endif
-	else
-		GLState_SetColorUBV((GLubyte*)&Surface->PolyColor.s);
+	poly.red   = byte2float(Surface->PolyColor.s.red);
+	poly.green = byte2float(Surface->PolyColor.s.green);
+	poly.blue  = byte2float(Surface->PolyColor.s.blue);
+	poly.alpha = byte2float(Surface->PolyColor.s.alpha);
 
 	tint.red   = byte2float(Surface->TintColor.s.red);
 	tint.green = byte2float(Surface->TintColor.s.green);
@@ -800,12 +608,13 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 		flags |= PF_Occlude;
 	else if (Surface->PolyColor.s.alpha == 0xFF)
 		flags |= (PF_Occlude | PF_Masked);
-
 	SetBlend(flags);
+
+	pglEnableVertexAttribArray(Shader_AttribLoc(LOC_NORMAL));
+
 	Shader_SetUniforms(Surface, &poly, &tint, &fade);
 
 	pglEnable(GL_CULL_FACE);
-	pglEnable(GL_NORMALIZE);
 
 #ifdef USE_FTRANSFORM_MIRROR
 	// flipped is if the object is vertically flipped
@@ -832,39 +641,58 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 	}
 #endif
 
-	pglPushMatrix(); // should be the same as glLoadIdentity
-	//Hurdler: now it seems to work
-	pglTranslatef(pos->x, pos->z, pos->y);
-	if (flipped)
-		scaley = -scaley;
-	if (hflipped)
-		scalez = -scalez;
+	lzml_matrix4_identity(modelMatrix);
 
-#ifdef USE_FTRANSFORM_ANGLEZ
-	pglRotatef(pos->anglez, 0.0f, 0.0f, -1.0f); // rotate by slope from Kart
-#endif
-	pglRotatef(pos->angley, 0.0f, -1.0f, 0.0f);
-	pglRotatef(pos->anglex, 1.0f, 0.0f, 0.0f);
+	translate[0] = pos->x;
+	translate[1] = pos->z;
+	translate[2] = pos->y;
+	lzml_matrix4_translate(modelMatrix, translate);
+
+	if (flipped)
+		v_scale[1] = -v_scale[1];
+	if (hflipped)
+		v_scale[2] = -v_scale[2];
 
 	if (pos->roll)
 	{
 		float roll = (1.0f * pos->rollflip);
-		pglTranslatef(pos->centerx, pos->centery, 0);
+		fvector3_t rotate;
+
+		translate[0] = pos->centerx;
+		translate[1] = pos->centery;
+		translate[2] = 0.0f;
+		lzml_matrix4_translate(modelMatrix, translate);
+
+		rotate[0] = rotate[1] = rotate[2] = 0.0f;
+
 		if (pos->rotaxis == 2) // Z
-			pglRotatef(pos->rollangle, 0.0f, 0.0f, roll);
+			rotate[2] = roll;
 		else if (pos->rotaxis == 1) // Y
-			pglRotatef(pos->rollangle, 0.0f, roll, 0.0f);
+			rotate[1] = roll;
 		else // X
-			pglRotatef(pos->rollangle, roll, 0.0f, 0.0f);
-		pglTranslatef(-pos->centerx, -pos->centery, 0);
+			rotate[0] = roll;
+
+		lzml_matrix4_rotate_by_vector(modelMatrix, rotate, Deg2Rad(pos->rollangle));
+
+		translate[0] = -translate[0];
+		translate[1] = -translate[1];
+		lzml_matrix4_translate(modelMatrix, translate);
 	}
 
-	pglScalef(scalex, scaley, scalez);
+#ifdef USE_FTRANSFORM_ANGLEZ
+	lzml_matrix4_rotate_z(modelMatrix, -Deg2Rad(pos->anglez)); // rotate by slope from Kart
+#endif
+	lzml_matrix4_rotate_y(modelMatrix, -Deg2Rad(pos->angley));
+	lzml_matrix4_rotate_x(modelMatrix, Deg2Rad(pos->anglex));
 
-	useTinyFrames = model->meshes[0].tinyframes != NULL;
+	lzml_matrix4_scale(modelMatrix, v_scale);
 
+	useTinyFrames = (model->meshes[0].tinyframes != NULL);
 	if (useTinyFrames)
-		pglScalef(1 / 64.0f, 1 / 64.0f, 1 / 64.0f);
+	{
+		v_scale[0] = v_scale[1] = v_scale[2] = (1 / 64.0f);
+		lzml_matrix4_scale(modelMatrix, v_scale);
+	}
 
 	// Don't use the VBO if it does not have the correct texture coordinates.
 	// (Can happen when model uses a sprite as a texture and the sprite changes)
@@ -875,7 +703,7 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 		memcmp(&(model->vbo_max_t), &(model->max_t), sizeof(model->max_t)) != 0)
 		useVBO = false;
 
-	pglEnableClientState(GL_NORMAL_ARRAY);
+	Shader_SetTransform();
 
 	for (i = 0; i < model->numMeshes; i++)
 	{
@@ -894,18 +722,20 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 				if (useVBO)
 				{
 					pglBindBuffer(GL_ARRAY_BUFFER, frame->vboID);
-					pglVertexPointer(3, GL_SHORT, sizeof(vbotiny_t), BUFFER_OFFSET(0));
-					pglNormalPointer(GL_BYTE, sizeof(vbotiny_t), BUFFER_OFFSET(sizeof(short)*3));
-					pglTexCoordPointer(2, GL_FLOAT, sizeof(vbotiny_t), BUFFER_OFFSET(sizeof(short) * 3 + sizeof(char) * 6));
+
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_SHORT, GL_FALSE, sizeof(vbotiny_t), BUFFER_OFFSET(0));
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, sizeof(vbotiny_t), BUFFER_OFFSET(sizeof(short) * 3 + sizeof(char) * 6));
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_NORMAL), 3, GL_BYTE, GL_FALSE, sizeof(vbotiny_t), BUFFER_OFFSET(sizeof(short)*3));
 
 					pglDrawElements(GL_TRIANGLES, mesh->numTriangles * 3, GL_UNSIGNED_SHORT, mesh->indices);
 					pglBindBuffer(GL_ARRAY_BUFFER, 0);
 				}
 				else
 				{
-					pglVertexPointer(3, GL_SHORT, 0, frame->vertices);
-					pglNormalPointer(GL_BYTE, 0, frame->normals);
-					pglTexCoordPointer(2, GL_FLOAT, 0, mesh->uvs);
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_SHORT, GL_FALSE, 0, frame->vertices);
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, 0, frame->normals);
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_NORMAL), 3, GL_BYTE, GL_FALSE, 0, mesh->uvs);
+
 					pglDrawElements(GL_TRIANGLES, mesh->numTriangles * 3, GL_UNSIGNED_SHORT, mesh->indices);
 				}
 			}
@@ -927,9 +757,10 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 					*normPtr++ = (char)(frame->normals[j] + (pol * (nextframe->normals[j] - frame->normals[j])));
 				}
 
-				pglVertexPointer(3, GL_SHORT, 0, vertTinyBuffer);
-				pglNormalPointer(GL_BYTE, 0, normTinyBuffer);
-				pglTexCoordPointer(2, GL_FLOAT, 0, mesh->uvs);
+				pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_SHORT, GL_FALSE, 0, vertTinyBuffer);
+				pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, 0, mesh->uvs);
+				pglVertexAttribPointer(Shader_AttribLoc(LOC_NORMAL), 3, GL_BYTE, GL_FALSE, 0, normTinyBuffer);
+
 				pglDrawElements(GL_TRIANGLES, mesh->numTriangles * 3, GL_UNSIGNED_SHORT, mesh->indices);
 			}
 		}
@@ -947,19 +778,22 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 				{
 					// Zoom! Take advantage of just shoving the entire arrays to the GPU.
 					pglBindBuffer(GL_ARRAY_BUFFER, frame->vboID);
-					pglVertexPointer(3, GL_FLOAT, sizeof(vbo64_t), BUFFER_OFFSET(0));
-					pglNormalPointer(GL_FLOAT, sizeof(vbo64_t), BUFFER_OFFSET(sizeof(float) * 3));
-					pglTexCoordPointer(2, GL_FLOAT, sizeof(vbo64_t), BUFFER_OFFSET(sizeof(float) * 6));
+
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, sizeof(vbo64_t), BUFFER_OFFSET(0));
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, sizeof(vbo64_t), BUFFER_OFFSET(sizeof(float) * 6));
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_NORMAL), 3, GL_FLOAT, GL_FALSE, sizeof(vbo64_t), BUFFER_OFFSET(sizeof(float) * 3));
 
 					pglDrawArrays(GL_TRIANGLES, 0, mesh->numTriangles * 3);
+
 					// No tinyframes, no mesh indices
 					pglBindBuffer(GL_ARRAY_BUFFER, 0);
 				}
 				else
 				{
-					pglVertexPointer(3, GL_FLOAT, 0, frame->vertices);
-					pglNormalPointer(GL_FLOAT, 0, frame->normals);
-					pglTexCoordPointer(2, GL_FLOAT, 0, mesh->uvs);
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, 0, frame->vertices);
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, 0, frame->normals);
+					pglVertexAttribPointer(Shader_AttribLoc(LOC_NORMAL), 3, GL_FLOAT, GL_FALSE, 0, mesh->uvs);
+
 					pglDrawArrays(GL_TRIANGLES, 0, mesh->numTriangles * 3);
 				}
 			}
@@ -981,28 +815,21 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 					*normPtr++ = frame->normals[j] + (pol * (nextframe->normals[j] - frame->normals[j]));
 				}
 
-				pglVertexPointer(3, GL_FLOAT, 0, vertBuffer);
-				pglNormalPointer(GL_FLOAT, 0, normBuffer);
-				pglTexCoordPointer(2, GL_FLOAT, 0, mesh->uvs);
+				pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, 0, vertBuffer);
+				pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, 0, mesh->uvs);
+				pglVertexAttribPointer(Shader_AttribLoc(LOC_NORMAL), 3, GL_FLOAT, GL_FALSE, 0, normBuffer);
+
 				pglDrawArrays(GL_TRIANGLES, 0, mesh->numVertices);
 			}
 		}
 	}
 
-	pglDisableClientState(GL_NORMAL_ARRAY);
+	lzml_matrix4_identity(modelMatrix);
+	Shader_SetTransform();
 
-	pglPopMatrix(); // should be the same as glLoadIdentity
+	pglDisableVertexAttribArray(Shader_AttribLoc(LOC_NORMAL));
+
 	pglDisable(GL_CULL_FACE);
-	pglDisable(GL_NORMALIZE);
-
-#ifdef GL_LIGHT_MODEL_AMBIENT
-	if (ModelLightingEnabled)
-	{
-		if (!ShadersEnabled)
-			pglDisable(GL_LIGHTING);
-		pglShadeModel(GL_FLAT);
-	}
-#endif
 }
 
 // -----------------+
@@ -1022,64 +849,80 @@ static void SetTransform(FTransform *stransform)
 	boolean shearing = false;
 	float used_fov;
 
-	pglLoadIdentity();
+	fvector3_t scale;
+
+	lzml_matrix4_identity(viewMatrix);
+	lzml_matrix4_identity(modelMatrix);
 
 	if (stransform)
 	{
 		used_fov = stransform->fovxangle;
+
 #ifdef USE_FTRANSFORM_MIRROR
 		// mirroring from Kart
 		if (stransform->mirror)
-			pglScalef(-stransform->scalex, stransform->scaley, -stransform->scalez);
+		{
+			scale[0] = -stransform->scalex;
+			scale[1] = -stransform->scaley;
+			scale[2] = -stransform->scalez;
+		}
 		else
 #endif
 		if (stransform->flip)
-			pglScalef(stransform->scalex, -stransform->scaley, -stransform->scalez);
+		{
+			scale[0] = stransform->scalex;
+			scale[1] = -stransform->scaley;
+			scale[2] = -stransform->scalez;
+		}
 		else
-			pglScalef(stransform->scalex, stransform->scaley, -stransform->scalez);
+		{
+			scale[0] = stransform->scalex;
+			scale[1] = stransform->scaley;
+			scale[2] = -stransform->scalez;
+		}
+
+		lzml_matrix4_scale(viewMatrix, scale);
 
 		if (stransform->roll)
-			pglRotatef(stransform->rollangle, 0.0f, 0.0f, 1.0f);
-		pglRotatef(stransform->anglex       , 1.0f, 0.0f, 0.0f);
-		pglRotatef(stransform->angley+270.0f, 0.0f, 1.0f, 0.0f);
-		pglTranslatef(-stransform->x, -stransform->z, -stransform->y);
+			lzml_matrix4_rotate_z(viewMatrix, Deg2Rad(stransform->rollangle));
+		lzml_matrix4_rotate_x(viewMatrix, Deg2Rad(stransform->anglex));
+		lzml_matrix4_rotate_y(viewMatrix, Deg2Rad(stransform->angley + 270.0f));
+
+		lzml_matrix4_translate_x(viewMatrix, -stransform->x);
+		lzml_matrix4_translate_y(viewMatrix, -stransform->z);
+		lzml_matrix4_translate_z(viewMatrix, -stransform->y);
 
 		special_splitscreen = stransform->splitscreen;
 		shearing = stransform->shearing;
 	}
 	else
-	{
 		used_fov = FIELD_OF_VIEW;
-		pglScalef(1.0f, 1.0f, -1.0f);
-	}
 
-	pglMatrixMode(GL_PROJECTION);
-	pglLoadIdentity();
+	lzml_matrix4_identity(projMatrix);
 
-	// jimita 14042019
-	// Simulate Software's y-shearing
-	// https://zdoom.org/wiki/Y-shearing
-	if (shearing)
+	if (stransform)
 	{
-		float fdy = stransform->viewaiming * 2;
-		if (stransform->flip)
-			fdy *= -1.0f;
-		pglTranslatef(0.0f, -fdy/BASEVIDHEIGHT, 0.0f);
+		// jimita 14042019
+		// Simulate Software's y-shearing
+		// https://zdoom.org/wiki/Y-shearing
+		if (shearing)
+		{
+			float fdy = stransform->viewaiming * 2;
+			if (stransform->flip)
+				fdy *= -1.0f;
+			lzml_matrix4_translate_y(projMatrix, (-fdy / BASEVIDHEIGHT));
+		}
+
+		if (special_splitscreen)
+		{
+			used_fov = atan(tan(used_fov*M_PI/360)*0.8)*360/M_PI;
+			GLPerspective(used_fov, 2*ASPECT_RATIO);
+		}
+		else
+			GLPerspective(used_fov, ASPECT_RATIO);
 	}
 
-	if (special_splitscreen)
-	{
-		used_fov = atan(tan(used_fov*M_PI/360)*0.8)*360/M_PI;
-		GLPerspective(used_fov, 2*ASPECT_RATIO);
-	}
-	else
-		GLPerspective(used_fov, ASPECT_RATIO);
-
-	pglGetFloatv(GL_PROJECTION_MATRIX, ProjectionMatrix); // added for new coronas' code (without depth buffer)
-	pglMatrixMode(GL_MODELVIEW);
-
-	pglGetFloatv(GL_MODELVIEW_MATRIX, ModelMatrix); // added for new coronas' code (without depth buffer)
-
+	Shader_SetTransform();
 }
 
 static INT32 GetTextureUsed(void)
@@ -1096,16 +939,19 @@ static void PostImgRedraw(float points[GPU_POSTIMGVERTS][GPU_POSTIMGVERTS][2])
 
 	const float blackBack[16] =
 	{
-		-16.0f, -16.0f, 6.0f,
-		-16.0f, 16.0f, 6.0f,
-		16.0f, 16.0f, 6.0f,
-		16.0f, -16.0f, 6.0f
+		-1.0f, -1.0f, 1.0f,
+		-1.0f, 1.0f, 1.0f,
+		1.0f, 1.0f, 1.0f,
+		1.0f, -1.0f, 1.0f
 	};
 
+	if (ShaderState.current == NULL)
+		return;
+
 	// Use a power of two texture, dammit
-	if (GPUScreenWidth <= 1024)
+	if(GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if (GPUScreenWidth <= 512)
+	if(GPUScreenWidth <= 512)
 		texsize = 512;
 
 	// X/Y stretch fix for all resolutions(!)
@@ -1115,16 +961,17 @@ static void PostImgRedraw(float points[GPU_POSTIMGVERTS][GPU_POSTIMGVERTS][2])
 	pglDisable(GL_DEPTH_TEST);
 	pglDisable(GL_BLEND);
 
-	// const float blackBack[16]
+	pglDisableVertexAttribArray(Shader_AttribLoc(LOC_TEXCOORD));
 
 	// Draw a black square behind the screen texture,
 	// so nothing shows through the edges
-	GLState_SetColorUBV(white);
-
-	pglVertexPointer(3, GL_FLOAT, 0, blackBack);
+	Shader_SetUniforms(NULL, &black, NULL, NULL);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, 0, blackBack);
 	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
-	pglEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	pglEnableVertexAttribArray(Shader_AttribLoc(LOC_TEXCOORD));
+	Shader_SetUniforms(NULL, &white, NULL, NULL);
+
 	for(x=0;x<GPU_POSTIMGVERTS-1;x++)
 	{
 		for(y=0;y<GPU_POSTIMGVERTS-1;y++)
@@ -1150,23 +997,23 @@ static void PostImgRedraw(float points[GPU_POSTIMGVERTS][GPU_POSTIMGVERTS][2])
 			stCoords[6] = float_nextx;
 			stCoords[7] = float_y;
 
-			pglTexCoordPointer(2, GL_FLOAT, 0, stCoords);
+			pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, 0, stCoords);
 
 			// float vertCoords[12];
-			vertCoords[0] = points[x][y][0];
-			vertCoords[1] = points[x][y][1];
-			vertCoords[2] = 4.4f;
-			vertCoords[3] = points[x][y + 1][0];
-			vertCoords[4] = points[x][y + 1][1];
-			vertCoords[5] = 4.4f;
-			vertCoords[6] = points[x + 1][y + 1][0];
-			vertCoords[7] = points[x + 1][y + 1][1];
-			vertCoords[8] = 4.4f;
-			vertCoords[9] = points[x + 1][y][0];
-			vertCoords[10] = points[x + 1][y][1];
-			vertCoords[11] = 4.4f;
+			vertCoords[0] = points[x][y][0] / 4.5f;
+			vertCoords[1] = points[x][y][1] / 4.5f;
+			vertCoords[2] = 1.0f;
+			vertCoords[3] = points[x][y + 1][0] / 4.5f;
+			vertCoords[4] = points[x][y + 1][1] / 4.5f;
+			vertCoords[5] = 1.0f;
+			vertCoords[6] = points[x + 1][y + 1][0] / 4.5f;
+			vertCoords[7] = points[x + 1][y + 1][1] / 4.5f;
+			vertCoords[8] = 1.0f;
+			vertCoords[9] = points[x + 1][y][0] / 4.5f;
+			vertCoords[10] = points[x + 1][y][1] / 4.5f;
+			vertCoords[11] = 1.0f;
 
-			pglVertexPointer(3, GL_FLOAT, 0, vertCoords);
+			pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, 0, vertCoords);
 
 			pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 		}
@@ -1209,15 +1056,18 @@ static void DrawIntermissionBG(void)
 
 	float fix[8];
 
-	if (GPUScreenWidth <= 1024)
+	if (ShaderState.current == NULL)
+		return;
+
+	if(GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if (GPUScreenWidth <= 512)
+	if(GPUScreenWidth <= 512)
 		texsize = 512;
 
 	xfix = 1/((float)(texsize)/((float)((GPUScreenWidth))));
 	yfix = 1/((float)(texsize)/((float)((GPUScreenHeight))));
 
-	// const float GPU_POSTIMGVERTS[12]
+	// const float screenVerts[12]
 
 	// float fix[8];
 	fix[0] = 0.0f;
@@ -1232,17 +1082,17 @@ static void DrawIntermissionBG(void)
 	pglClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
 	pglBindTexture(GL_TEXTURE_2D, ScreenTexture);
-	GLState_SetColorUBV(white);
+	Shader_SetUniforms(NULL, &white, NULL, NULL);
 
-	pglTexCoordPointer(2, GL_FLOAT, 0, fix);
-	pglVertexPointer(3, GL_FLOAT, 0, screenVerts);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, 0, screenVerts);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, 0, fix);
 	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
 	CurrentTexture = ScreenTexture;
 }
 
 // Do screen fades!
-static void DoScreenWipe(void)
+static void DoWipe(boolean tinted, boolean isfadingin, boolean istowhite)
 {
 	INT32 texsize = 2048;
 	float xfix, yfix;
@@ -1267,13 +1117,13 @@ static void DoScreenWipe(void)
 		1.0f, 1.0f
 	};
 
-	if (!GLExtension_multitexture)
+	if (ShaderState.current == NULL)
 		return;
 
 	// Use a power of two texture, dammit
-	if (GPUScreenWidth <= 1024)
+	if(GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if (GPUScreenWidth <= 512)
+	if(GPUScreenWidth <= 512)
 		texsize = 512;
 
 	xfix = 1/((float)(texsize)/((float)((GPUScreenWidth))));
@@ -1292,47 +1142,54 @@ static void DoScreenWipe(void)
 	fix[7] = 0.0f;
 
 	pglClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
-
-	SetBlend(PF_Modulated|PF_NoDepthTest);
-	pglEnable(GL_TEXTURE_2D);
-
-	// Draw the original screen
-	pglBindTexture(GL_TEXTURE_2D, WipeStartTexture);
-	GLState_SetColorUBV(white);
-	pglTexCoordPointer(2, GL_FLOAT, 0, fix);
-	pglVertexPointer(3, GL_FLOAT, 0, screenVerts);
-	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
 	SetBlend(PF_Modulated|PF_Translucent|PF_NoDepthTest);
 
-	// Draw the end screen that fades in
-	pglActiveTexture(GL_TEXTURE0);
-	pglEnable(GL_TEXTURE_2D);
-	pglBindTexture(GL_TEXTURE_2D, WipeEndTexture);
-	pglTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+	Shader_Set(tinted ? SHADER_FADEMASK_ADDITIVEANDSUBTRACTIVE : SHADER_FADEMASK);
+	Shader_SetProgram();
 
-	pglActiveTexture(GL_TEXTURE1);
-	pglEnable(GL_TEXTURE_2D);
+	pglDisableVertexAttribArray(Shader_AttribLoc(LOC_COLORS));
+	pglEnableVertexAttribArray(Shader_AttribLoc(LOC_TEXCOORD1));
+
+	Shader_SetSampler(uniform_startscreen, 0);
+	Shader_SetSampler(uniform_endscreen, 1);
+	Shader_SetSampler(uniform_fademask, 2);
+
+	if (tinted)
+	{
+		Shader_SetIntegerUniform(uniform_isfadingin, isfadingin);
+		Shader_SetIntegerUniform(uniform_istowhite, istowhite);
+	}
+
+	Shader_SetUniforms(NULL, &white, NULL, NULL);
+	Shader_SetTransform();
+
+	pglActiveTexture(GL_TEXTURE0 + 0);
+	pglBindTexture(GL_TEXTURE_2D, WipeStartTexture);
+	pglActiveTexture(GL_TEXTURE0 + 1);
+	pglBindTexture(GL_TEXTURE_2D, WipeEndTexture);
+	pglActiveTexture(GL_TEXTURE0 + 2);
 	pglBindTexture(GL_TEXTURE_2D, fademaskdownloaded);
 
-	pglTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-
-	// const float defaultST[8]
-
-	pglClientActiveTexture(GL_TEXTURE0);
-	pglTexCoordPointer(2, GL_FLOAT, 0, fix);
-	pglVertexPointer(3, GL_FLOAT, 0, screenVerts);
-	pglClientActiveTexture(GL_TEXTURE1);
-	pglEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	pglTexCoordPointer(2, GL_FLOAT, 0, defaultST);
-	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
-	pglDisable(GL_TEXTURE_2D); // disable the texture in the 2nd texture unit
-	pglDisableClientState(GL_TEXTURE_COORD_ARRAY);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, 0, screenVerts);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD0), 2, GL_FLOAT, GL_FALSE, 0, fix);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD1), 2, GL_FLOAT, GL_FALSE, 0, defaultST);
 
 	pglActiveTexture(GL_TEXTURE0);
-	pglClientActiveTexture(GL_TEXTURE0);
+	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	pglDisableVertexAttribArray(Shader_AttribLoc(LOC_TEXCOORD1));
+
+	Shader_UnSet();
 	CurrentTexture = WipeEndTexture;
+}
+
+static void DoScreenWipe(void)
+{
+	DoWipe(false, false, false);
+}
+
+static void DoTintedWipe(boolean isfadingin, boolean istowhite)
+{
+	DoWipe(true, isfadingin, istowhite);
 }
 
 // Create a texture from the screen.
@@ -1357,9 +1214,12 @@ static void DrawScreenFinalTexture(int width, int height)
 	float off[12];
 	float fix[8];
 
-	if (GPUScreenWidth <= 1024)
+	if (ShaderState.current == NULL)
+		return;
+
+	if(GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if (GPUScreenWidth <= 512)
+	if(GPUScreenWidth <= 512)
 		texsize = 512;
 
 	xfix = 1/((float)(texsize)/((float)((GPUScreenWidth))));
@@ -1409,67 +1269,44 @@ static void DrawScreenFinalTexture(int width, int height)
 	ClearBuffer(true, false, &clearColour);
 	pglBindTexture(GL_TEXTURE_2D, FinalScreenTexture);
 
-	GLState_SetColorUBV(white);
+	Shader_SetUniforms(NULL, &white, NULL, NULL);
 
-	pglTexCoordPointer(2, GL_FLOAT, 0, fix);
-	pglVertexPointer(3, GL_FLOAT, 0, off);
-
+	pglBindBuffer(GL_ARRAY_BUFFER, 0);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_POSITION), 3, GL_FLOAT, GL_FALSE, 0, off);
+	pglVertexAttribPointer(Shader_AttribLoc(LOC_TEXCOORD), 2, GL_FLOAT, GL_FALSE, 0, fix);
 	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
 	CurrentTexture = FinalScreenTexture;
 }
 
 static void SetShader(int type)
 {
-#ifdef GL_SHADERS
 	Shader_Set(GLBackend_GetShaderType(type));
-#else
-	(void)type;
-#endif
 }
 
 static boolean CompileShaders(void)
 {
-#ifdef GL_SHADERS
 	return Shader_Compile();
-#else
-	return false;
-#endif
 }
 
 static void SetShaderInfo(INT32 info, INT32 value)
 {
-#ifdef GL_SHADERS
 	Shader_SetInfo(info, value);
-#else
-	(void)info;
-	(void)value;
-#endif
 }
 
 static void LoadCustomShader(int number, char *shader, size_t size, boolean fragment)
 {
-#ifdef GL_SHADERS
 	Shader_LoadCustom(number, shader, size, fragment);
-#else
-	(void)number;
-	(void)shader;
-	(void)size;
-	(void)fragment;
-#endif
 }
 
 static void UnSetShader(void)
 {
-#ifdef GL_SHADERS
 	Shader_UnSet();
-#endif
 }
 
 static void CleanShaders(void)
 {
-#ifdef GL_SHADERS
 	Shader_Clean();
-#endif
 }
 
 struct GPURenderingAPI GLInterfaceAPI = {
@@ -1509,7 +1346,7 @@ struct GPURenderingAPI GLInterfaceAPI = {
 	StartScreenWipe,
 	EndScreenWipe,
 	DoScreenWipe,
-	NULL,
+	DoTintedWipe,
 	DrawIntermissionBG,
 	DrawScreenFinalTexture,
 

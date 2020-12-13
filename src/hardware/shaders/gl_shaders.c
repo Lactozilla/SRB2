@@ -10,10 +10,25 @@
 /// \brief OpenGL shaders
 
 #include "gl_shaders.h"
+
 #include "../r_glcommon/r_glcommon.h"
+
+#include "../hw_dll.h"
+
+#ifdef HAVE_GLES
+#include "../r_gles/r_gles.h"
+#else
+#include "../r_opengl/r_opengl.h"
+#endif
+
+#include "../../doomdef.h"
+#include "../../doomtype.h"
+#include "../../doomdata.h"
 
 GLboolean ShadersEnabled = GL_FALSE;
 INT32 ShadersAllowed = GPU_SHADEROPTION_OFF;
+
+#ifdef GL_SHADERS
 
 typedef GLuint (R_GL_APIENTRY *PFNglCreateShader)       (GLenum);
 typedef void   (R_GL_APIENTRY *PFNglShaderSource)       (GLuint, GLsizei, const GLchar**, GLint*);
@@ -114,6 +129,12 @@ static struct {
 
 	// Sky shader
 	{GLSL_DEFAULT_VERTEX_SHADER, GLSL_SKY_FRAGMENT_SHADER},
+
+#ifdef HAVE_GLES2
+	// Fade mask shaders
+	{GLSL_FADEMASK_VERTEX_SHADER, GLSL_FADEMASK_FRAGMENT_SHADER},
+	{GLSL_FADEMASK_VERTEX_SHADER, GLSL_FADEMASK_ADDITIVEANDSUBTRACTIVE_FRAGMENT_SHADER},
+#endif
 
 	{NULL, NULL},
 };
@@ -434,7 +455,7 @@ static boolean Shader_CompileProgram(FShaderObject *shader, GLint i, const GLcha
 	shader->attributes[attrib_texcoord]     = GETATTRIB("a_texcoord");
 	shader->attributes[attrib_normal]       = GETATTRIB("a_normal");
 	shader->attributes[attrib_colors]       = GETATTRIB("a_colors");
-	shader->attributes[attrib_fadetexcoord] = GETATTRIB("a_fadetexcoord");
+	shader->attributes[attrib_fadetexcoord] = GETATTRIB("a_fademasktexcoord");
 
 #undef GETATTRIB
 
@@ -503,11 +524,16 @@ boolean Shader_Compile(void)
 	return true;
 }
 
-static void Shader_SetIfChanged(FShaderObject *shader)
+void Shader_SetProgram(void)
+{
+	pglUseProgram(ShaderState.current->program);
+}
+
+void Shader_SetProgramIfChanged(void)
 {
 	if (ShaderState.changed)
 	{
-		pglUseProgram(shader->program);
+		pglUseProgram(ShaderState.current->program);
 		ShaderState.changed = false;
 	}
 }
@@ -519,7 +545,7 @@ void Shader_SetTransform(void)
 	if (!shader)
 		return;
 
-	Shader_SetIfChanged(shader);
+	Shader_SetProgramIfChanged();
 
 	if (memcmp(projMatrix, shader->projMatrix, sizeof(fmatrix4_t)))
 	{
@@ -553,7 +579,7 @@ void Shader_SetUniforms(FSurfaceInfo *Surface, GLRGBAFloat *poly, GLRGBAFloat *t
 			return;
 		}
 
-		Shader_SetIfChanged(shader);
+		Shader_SetProgramIfChanged();
 
 		// Color uniforms can be left NULL and will be set to white (1.0f, 1.0f, 1.0f, 1.0f)
 		if (poly == NULL)
@@ -579,7 +605,6 @@ void Shader_SetUniforms(FSurfaceInfo *Surface, GLRGBAFloat *poly, GLRGBAFloat *t
 			if (uniform != -1) \
 				function (uniform, a, b, c, d);
 
-		// polygon
 		UNIFORM_4(shader->uniforms[uniform_poly_color], poly->red, poly->green, poly->blue, poly->alpha, pglUniform4f);
 		UNIFORM_4(shader->uniforms[uniform_tint_color], tint->red, tint->green, tint->blue, tint->alpha, pglUniform4f);
 		UNIFORM_4(shader->uniforms[uniform_fade_color], fade->red, fade->green, fade->blue, fade->alpha, pglUniform4f);
@@ -606,8 +631,10 @@ void Shader_SetSampler(EShaderUniform uniform, GLint value)
 	if (!shader)
 		return;
 
-	Shader_SetIfChanged(shader);
+	Shader_SetProgramIfChanged();
 
 	if (shader->uniforms[uniform] != -1)
 		pglUniform1i(shader->uniforms[uniform], value);
 }
+
+#endif // GL_SHADERS

@@ -1,60 +1,53 @@
 // SONIC ROBO BLAST 2
 //-----------------------------------------------------------------------------
-// Copyright (C) 1998-2020 by Sonic Team Junior.
+// Copyright (C) 2020 by Jaime "Lactozilla" Passos.
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
 /// \file r_glcommon.h
-/// \brief Common OpenGL functions and structs shared by OpenGL backends
+/// \brief Common OpenGL functions shared by all of the OpenGL backends
 
 #ifndef _R_GLCOMMON_H_
 #define _R_GLCOMMON_H_
 
 #define GL_GLEXT_PROTOTYPES
 
-#if defined(HAVE_GLES2)
-	#include <GLES2/gl2.h>
-	#include <GLES2/gl2ext.h>
-#elif defined(HAVE_GLES)
-	#include <GLES/gl.h>
-	#include <GLES/glext.h>
+#ifdef HAVE_SDL
+	#define _MATH_DEFINES_DEFINED
+
+	#ifdef _MSC_VER
+	#pragma warning(disable : 4214 4244)
+	#endif
+
+	#include "SDL.h" // For GLExtension_Available
+	#include "SDL_opengl.h" // Alam_GBC: Simple, yes?
+
+	#ifdef _MSC_VER
+	#pragma warning(default : 4214 4244)
+	#endif
 #else
-	#ifdef HAVE_SDL
-		#define _MATH_DEFINES_DEFINED
-
-		#ifdef _MSC_VER
-		#pragma warning(disable : 4214 4244)
-		#endif
-
-		#include "SDL_opengl.h" //Alam_GBC: Simple, yes?
-
-		#ifdef _MSC_VER
-		#pragma warning(default : 4214 4244)
-		#endif
-	#else
-		#include <GL/gl.h>
-		#include <GL/glu.h>
-		#if defined(STATIC_OPENGL)
-			#include <GL/glext.h>
-		#endif
+	#include <GL/gl.h>
+	#include <GL/glu.h>
+	#if defined(STATIC_OPENGL)
+		#include <GL/glext.h>
 	#endif
 #endif
 
-// For GLExtension_Available
-#ifdef HAVE_SDL
-#define _MATH_DEFINES_DEFINED
-#include "SDL.h"
+#ifdef HAVE_GLES
+#include "../r_gles/r_gleslib.h"
 #endif
 
 #include "../../doomdata.h"
 #include "../../doomtype.h"
 #include "../../doomdef.h"
 
-#include "../../hardware/hw_data.h"  // HWRTexture_s
+#include "../../hardware/hw_gpu.h"   // GPURenderingAPI
+#include "../../hardware/hw_data.h"  // HWRTexture_t
 #include "../../hardware/hw_defs.h"  // FTextureInfo
 #include "../../hardware/hw_model.h" // model_t / mesh_t / mdlframe_t
+
 #include "../r_opengl/r_vbo.h"
 
 void GL_DBG_Printf(const char *format, ...);
@@ -216,36 +209,26 @@ extern PFNglActiveTexture pglActiveTexture;
 // Mipmapping
 //
 
-#ifdef HAVE_GLES
-/* Texture mapping */
 typedef void (R_GL_APIENTRY * PFNglGenerateMipmap) (GLenum target);
 extern PFNglGenerateMipmap pglGenerateMipmap;
-#endif
 
 //
 // Depth functions
 //
-#ifndef HAVE_GLES
-	#ifdef STATIC_OPENGL
-		#define pglClearDepth glClearDepth
-		#define pglDepthFunc glDepthFunc
-	#else
-		typedef void (R_GL_APIENTRY * PFNglClearDepth) (GLclampd depth);
-		extern PFNglClearDepth pglClearDepth;
-		typedef void (R_GL_APIENTRY * PFNglDepthRange) (GLclampd near_val, GLclampd far_val);
-		extern PFNglDepthRange pglDepthRange;
-	#endif
+#ifdef STATIC_OPENGL
+	#define pglClearDepth glClearDepth
+	#define pglDepthFunc glDepthFunc
 #else
-	#ifdef STATIC_OPENGL
-		#define pglClearDepthf glClearDepthf
-		#define pglDepthFuncf glDepthFuncf
-	#else
-		typedef void (R_GL_APIENTRY * PFNglClearDepthf) (GLclampf depth);
-		extern PFNglClearDepthf pglClearDepthf;
-		typedef void (R_GL_APIENTRY * PFNglDepthRangef) (GLclampf near_val, GLclampf far_val);
-		extern PFNglDepthRangef pglDepthRangef;
-	#endif
+	typedef void (R_GL_APIENTRY * PFNglClearDepth) (GLclampd depth);
+	extern PFNglClearDepth pglClearDepth;
+	typedef void (R_GL_APIENTRY * PFNglDepthRange) (GLclampd near_val, GLclampd far_val);
+	extern PFNglDepthRange pglDepthRange;
 #endif
+
+typedef void (R_GL_APIENTRY * PFNglClearDepthf) (GLclampf depth);
+extern PFNglClearDepthf pglClearDepthf;
+typedef void (R_GL_APIENTRY * PFNglDepthRangef) (GLclampf near_val, GLclampf far_val);
+extern PFNglDepthRangef pglDepthRangef;
 
 //
 // Legacy functions
@@ -331,20 +314,18 @@ extern PFNglTexEnvi pglTexEnvi;
 #endif // HAVE_GLES2
 
 // Color
-#ifdef HAVE_GLES
-	#ifdef STATIC_OPENGL
-		#define pglColor4f glColor4f
-	#else
-		typedef void (*PFNglColor4f) (GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
-		extern PFNglColor4f pglColor4f;
-	#endif
+#ifdef STATIC_OPENGL
+	#define pglColor4f glColor4f
 #else
-	#ifdef STATIC_OPENGL
-		#define pglColor4ubv glColor4ubv
-	#else
-		typedef void (R_GL_APIENTRY * PFNglColor4ubv) (const GLubyte *v);
-		extern PFNglColor4ubv pglColor4ubv;
-	#endif
+	typedef void (*PFNglColor4f) (GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
+	extern PFNglColor4f pglColor4f;
+#endif
+
+#ifdef STATIC_OPENGL
+	#define pglColor4ubv glColor4ubv
+#else
+	typedef void (R_GL_APIENTRY * PFNglColor4ubv) (const GLubyte *v);
+	extern PFNglColor4ubv pglColor4ubv;
 #endif
 
 /* 1.5 functions for buffers */
@@ -365,36 +346,77 @@ extern PFNglBlendEquation pglBlendEquation;
 //                                                                  FUNCTIONS
 // ==========================================================================
 
-void GLModel_GenerateVBOs(model_t *model);
-void GLModel_AllocLerpBuffer(size_t size);
-void GLModel_AllocLerpTinyBuffer(size_t size);
-
-void  GLTexture_Flush(void);
-void  GLTexture_SetFilterMode(INT32 mode);
-void  GLTexture_Delete(HWRTexture_t *pTexInfo);
-INT32 GLTexture_GetMemoryUsage(FTextureInfo *head);
-void  GLTexture_GenerateScreenTexture(GLuint *name);
-
 boolean GLBackend_Init(void);
 boolean GLBackend_InitContext(void);
+boolean GLBackend_InitShaders(void);
 boolean GLBackend_LoadLibrary(void);
 boolean GLBackend_LoadFunctions(void);
 boolean GLBackend_LoadContextFunctions(void);
 boolean GLBackend_LoadCommonFunctions(void);
 boolean GLBackend_LoadLegacyFunctions(void);
 void   *GLBackend_GetFunction(const char *proc);
+INT32   GLBackend_GetShaderType(INT32 type);
 
-INT32 GLBackend_GetShaderType(INT32 type);
+#define GLBackend_GetFunctionPointer(func) \
+	p ## gl ## func = GLBackend_GetFunction("gl" #func); \
+	if (!(p ## gl ## func)) \
+	{ \
+		GL_MSG_Error("Failed to get OpenGL function %s", #func); \
+		return false; \
+	}
+
+#define GLBackend_GetFunctionPointerOrFallback(func1, func2) \
+	p ## gl ## func1 = GLBackend_GetFunction("gl" #func1); \
+	if (!(p ## gl ## func1)) \
+	{ \
+		GL_DBG_Printf("Failed to get OpenGL function %s, trying %s instead\n", #func1, #func2); \
+		p ## gl ## func2 = GLBackend_GetFunction("gl" #func2); \
+		if (!(p ## gl ## func2)) \
+		{ \
+			GL_MSG_Error("Failed to get OpenGL function %s\n", #func2); \
+			return false; \
+		} \
+	}
+
+#define GETOPENGLFUNC    GLBackend_GetFunctionPointer
+#define GETOPENGLFUNCALT GLBackend_GetFunctionPointerOrFallback
+
+void GLState_SetSurface(INT32 w, INT32 h);
+void GLState_SetPalette(RGBA_t *palette);
+void GLState_SetFilterMode(INT32 mode);
+void GLState_SetClamp(GLenum pname);
+void GLState_SetDepthBuffer(void);
+void GLState_SetBlend(UINT32 PolyFlags);
+void GLState_SetColor(const GLfloat red, const GLfloat green, const GLfloat blue, const GLfloat alpha);
+void GLState_SetColorUBV(const GLubyte *v);
 
 void    GLExtension_Init(void);
 boolean GLExtension_Available(const char *extension);
 
-void SetSurface(INT32 w, INT32 h);
-void SetModelView(GLint w, GLint h);
-void SetStates(void);
-void SetBlendingStates(UINT32 PolyFlags);
-void SetNoTexture(void);
-void SetClamp(GLenum pname);
+void GLTexture_Set(HWRTexture_t *pTexInfo);
+void GLTexture_Delete(HWRTexture_t *pTexInfo);
+
+void GLTexture_Update(HWRTexture_t *pTexInfo);
+void GLTexture_UploadData(HWRTexture_t *pTexInfo, const GLvoid *pTextureBuffer, GLenum format, boolean update);
+
+void GLTexture_WritePalette(HWRTexture_t *pTexInfo, RGBA_t *textureBuffer);
+void GLTexture_WriteLuminanceAlpha(HWRTexture_t *pTexInfo, RGBA_t *textureBuffer);
+void GLTexture_WriteFadeMaskA(HWRTexture_t *pTexInfo, RGBA_t *textureBuffer);
+void GLTexture_WriteFadeMaskR(HWRTexture_t *pTexInfo, RGBA_t *textureBuffer);
+
+void GLTexture_Flush(void);
+void GLTexture_FlushScreenTextures(void);
+void GLTexture_SetNoTexture(void);
+
+boolean GLTexture_InitMipmapping(void);
+boolean GLTexture_CanGenerateMipmaps(HWRTexture_t *pTexInfo);
+
+void GLTexture_GenerateScreenTexture(GLuint *name);
+int  GLTexture_GetMemoryUsage(FTextureInfo *head);
+
+void GLModel_GenerateVBOs(model_t *model);
+void GLModel_AllocLerpBuffer(size_t size);
+void GLModel_AllocLerpTinyBuffer(size_t size);
 
 // ==========================================================================
 //                                                                  CONSTANTS
@@ -524,6 +546,7 @@ extern GLuint WipeEndTexture;
 extern UINT32 CurrentPolyFlags;
 
 extern GLboolean MipmappingEnabled;
+extern GLboolean MipmappingSupported;
 extern GLboolean ModelLightingEnabled;
 
 extern GLint MipmapMinFilter;

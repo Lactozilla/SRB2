@@ -49,6 +49,7 @@
 
 #ifdef HWRENDER
 #include "hardware/hw_main.h"
+#include "hardware/hw_gpu.h"	// GPUInterface_GetAPIName
 #endif
 
 #ifdef HAVE_SDL
@@ -768,7 +769,12 @@ static void M_PNGhdr(png_structp png_ptr, png_infop png_info_ptr, PNG_CONST png_
 	}
 	else
 	{
-		png_set_IHDR(png_ptr, png_info_ptr, width, height, 8, PNG_COLOR_TYPE_RGB,
+		png_set_IHDR(png_ptr, png_info_ptr, width, height, 8,
+#ifdef SCREENSHOT_USE_RGBA
+		PNG_COLOR_TYPE_RGBA,
+#else
+		PNG_COLOR_TYPE_RGB,
+#endif
 		 png_interlace, PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
 		png_write_info_before_PLTE(png_ptr, png_info_ptr);
 		png_set_compression_strategy(png_ptr, Z_FILTERED);
@@ -810,7 +816,7 @@ static void M_PNGText(png_structp png_ptr, png_infop png_info_ptr, PNG_CONST png
 			strcpy(rendermodetxt, "Software");
 			break;
 		case render_opengl:
-			strcpy(rendermodetxt, "OpenGL");
+			strcpy(rendermodetxt, GPUInterface_GetAPIName());
 			break;
 		default: // Just in case
 			strcpy(rendermodetxt, "None");
@@ -1257,7 +1263,7 @@ void M_SaveFrame(void)
 				}
 #ifdef HWRENDER
 				else
-					linear = HWR_GetScreenshot();
+					linear = HWR_GetScreenBuffer();
 #endif
 				M_PNGFrame(apng_ptr, apng_info_ptr, (png_bytep)linear);
 #ifdef HWRENDER
@@ -1518,7 +1524,7 @@ void M_ScreenShot(void)
   * The screenshot is saved as "srb2xxxx.png" where xxxx is the lowest
   * four-digit number for which a file does not already exist.
   *
-  * \sa HWR_ScreenShot
+  * \sa HWR_TakeScreenshot
   */
 void M_DoScreenShot(void)
 {
@@ -1572,7 +1578,7 @@ void M_DoScreenShot(void)
 	// save the pcx file
 #ifdef HWRENDER
 	if (rendermode == render_opengl)
-		ret = HWR_Screenshot(va(pandf,pathname,freename));
+		ret = HWR_TakeScreenshot(va(pandf,pathname,freename));
 	else
 #endif
 	{

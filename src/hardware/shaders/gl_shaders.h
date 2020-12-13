@@ -93,7 +93,7 @@ typedef struct FShaderObject
 
 	GLint uniforms[uniform_max+1];
 #ifdef HAVE_GLES2
-	GLint attributes[attribute_max+1];
+	GLint attributes[attrib_max+1];
 #endif
 
 #ifdef HAVE_GLES2
@@ -119,6 +119,9 @@ extern FShaderState ShaderState;
 
 void Shader_Set(int type);
 void Shader_UnSet(void);
+
+void Shader_SetProgram(void);
+void Shader_SetProgramIfChanged(void);
 
 #ifdef HAVE_GLES2
 void Shader_SetTransform(void);

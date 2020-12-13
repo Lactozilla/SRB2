@@ -20,13 +20,14 @@
 struct GPURenderingAPI
 {
 	boolean (*Init) (void);
-	void (*FinishUpdate) (INT32 waitvbl);
 
+	void (*SetInitialStates) (void);
+	void (*SetModelView) (INT32 w, INT32 h);
 	void (*SetState) (INT32 State, INT32 Value);
 	void (*SetTransform) (FTransform *ptransform);
 	void (*SetBlend) (UINT32 PolyFlags);
 	void (*SetPalette) (RGBA_t *palette);
-	void (*ClearBuffer) (boolean ColorMask, boolean DepthMask, FRGBAFloat *ClearColor);
+	void (*SetDepthBuffer) (void);
 
 	void (*DrawPolygon) (FSurfaceInfo *pSurf, FOutVector *pOutVerts, UINT32 iNumPts, UINT32 PolyFlags);
 	void (*DrawIndexedTriangles) (FSurfaceInfo *pSurf, FOutVector *pOutVerts, UINT32 iNumPts, UINT32 PolyFlags, UINT32 *IndexArray);
@@ -45,6 +46,7 @@ struct GPURenderingAPI
 
 	void (*ReadRect) (INT32 x, INT32 y, INT32 width, INT32 height, INT32 dst_stride, UINT16 *dst_data);
 	void (*GClipRect) (INT32 minx, INT32 miny, INT32 maxx, INT32 maxy, float nearclip);
+	void (*ClearBuffer) (boolean ColorMask, boolean DepthMask, FRGBAFloat *ClearColor);
 
 	void (*MakeScreenTexture) (void);
 	void (*MakeScreenFinalTexture) (void);
@@ -53,6 +55,7 @@ struct GPURenderingAPI
 	void (*StartScreenWipe) (void);
 	void (*EndScreenWipe) (void);
 	void (*DoScreenWipe) (void);
+	void (*DoTintedWipe) (boolean istowhite, boolean isfadingin);
 	void (*DrawIntermissionBG) (void);
 	void (*DrawScreenFinalTexture) (int width, int height);
 
@@ -70,5 +73,6 @@ struct GPURenderingAPI
 extern struct GPURenderingAPI *GPU;
 
 void GPUInterface_Load(struct GPURenderingAPI **api);
+const char *GPUInterface_GetAPIName(void);
 
 #endif // __HWR_GPU_H__

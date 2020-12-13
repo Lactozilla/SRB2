@@ -7,48 +7,31 @@
 // terms of the GNU General Public License, version 2.
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
-/// \file r_opengl.c
-/// \brief OpenGL API for Sonic Robo Blast 2
-
-#if defined (_WIN32)
-#define RPC_NO_WINDOWS_H
-#include <windows.h>
-#endif
-#undef GETTEXT
-#ifdef __GNUC__
-#include <unistd.h>
-#endif
+/// \file r_gles1.c
+/// \brief OpenGL ES 1.1 API for Sonic Robo Blast 2
 
 #include <stdarg.h>
 #include <math.h>
-#include "r_opengl.h"
-#include "r_vbo.h"
 
-#include "../shaders/gl_shaders.h"
+#include "r_gles.h"
+#include "../r_opengl/r_vbo.h"
 
 #if defined (HWRENDER) && !defined (NOROPENGL)
 
-static const GLubyte white[4] = { 255, 255, 255, 255 };
-
-// ==========================================================================
-//                                                                    GLOBALS
-// ==========================================================================
-
-// Hurdler: 04/10/2000: added for the kick ass coronas as Boris wanted;-)
-static GLfloat ModelMatrix[16];
-static GLfloat ProjectionMatrix[16];
-static GLint   SceneViewport[4];
+static const GLfloat white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 boolean GLBackend_LoadFunctions(void)
 {
-#ifndef STATIC_OPENGL
 	if (!GLBackend_LoadCommonFunctions())
 		return false;
 
-	GETOPENGLFUNC(ClearDepth)
-	GETOPENGLFUNC(DepthRange)
+	GETOPENGLFUNCALT(ClearDepthf, ClearDepth)
+	GETOPENGLFUNCALT(DepthRangef, DepthRange)
 
+	GETOPENGLFUNC(Color4f)
+#if !defined(__ANDROID__)
 	GETOPENGLFUNC(Color4ubv)
+#endif
 
 	GETOPENGLFUNC(VertexPointer)
 	GETOPENGLFUNC(NormalPointer)
@@ -57,39 +40,30 @@ boolean GLBackend_LoadFunctions(void)
 	GETOPENGLFUNC(EnableClientState)
 	GETOPENGLFUNC(DisableClientState)
 
+#if defined(__ANDROID__)
+	GLBackend_LoadContextFunctions();
+#endif
+
 	if (!GLBackend_LoadLegacyFunctions())
 		return false;
-#endif
 
 	return true;
 }
 
 boolean GLBackend_LoadContextFunctions(void)
 {
-	if (GLExtension_multitexture)
-	{
-		GETOPENGLFUNC(ActiveTexture)
-		GETOPENGLFUNC(ClientActiveTexture)
-	}
+	GETOPENGLFUNC(ActiveTexture)
+	GETOPENGLFUNC(ClientActiveTexture)
 
-	if (GLExtension_vertex_buffer_object)
-	{
-		GETOPENGLFUNC(GenBuffers)
-		GETOPENGLFUNC(BindBuffer)
-		GETOPENGLFUNC(BufferData)
-		GETOPENGLFUNC(DeleteBuffers)
-	}
+	GETOPENGLFUNC(GenBuffers)
+	GETOPENGLFUNC(BindBuffer)
+	GETOPENGLFUNC(BufferData)
+	GETOPENGLFUNC(DeleteBuffers)
 
-	if (GLMajorVersion >= 2)
-		GETOPENGLFUNC(BlendEquation)
+	GETOPENGLFUNC(BlendEquation)
 
 	if (GLTexture_InitMipmapping())
 		MipmappingSupported = GL_TRUE;
-
-#ifdef GL_SHADERS
-	if (GLExtension_shaders)
-		Shader_LoadFunctions();
-#endif
 
 	return true;
 }
@@ -106,7 +80,7 @@ static void GLPerspective(GLfloat fovy, GLfloat aspect)
 	const GLfloat zNear = NearClippingPlane;
 	const GLfloat zFar = FAR_CLIPPING_PLANE;
 	const GLfloat radians = (GLfloat)(fovy / 2.0f * M_PIl / 180.0f);
-	const GLfloat sine = sin(radians);
+	const GLfloat sine = sinf(radians);
 	const GLfloat deltaZ = zFar - zNear;
 	GLfloat cotangent;
 
@@ -124,52 +98,12 @@ static void GLPerspective(GLfloat fovy, GLfloat aspect)
 	pglMultMatrixf(&m[0][0]);
 }
 
-static void GLProject(GLfloat objX, GLfloat objY, GLfloat objZ,
-                      GLfloat* winX, GLfloat* winY, GLfloat* winZ)
-{
-	GLfloat in[4], out[4];
-	int i;
-
-	for (i=0; i<4; i++)
-	{
-		out[i] =
-			objX * ModelMatrix[0*4+i] +
-			objY * ModelMatrix[1*4+i] +
-			objZ * ModelMatrix[2*4+i] +
-			ModelMatrix[3*4+i];
-	}
-	for (i=0; i<4; i++)
-	{
-		in[i] =
-			out[0] * ProjectionMatrix[0*4+i] +
-			out[1] * ProjectionMatrix[1*4+i] +
-			out[2] * ProjectionMatrix[2*4+i] +
-			out[3] * ProjectionMatrix[3*4+i];
-	}
-	if (fpclassify(in[3]) == FP_ZERO) return;
-	in[0] /= in[3];
-	in[1] /= in[3];
-	in[2] /= in[3];
-	/* Map x, y and z to range 0-1 */
-	in[0] = in[0] * 0.5f + 0.5f;
-	in[1] = in[1] * 0.5f + 0.5f;
-	in[2] = in[2] * 0.5f + 0.5f;
-
-	/* Map x,y to viewport */
-	in[0] = in[0] * SceneViewport[2] + SceneViewport[0];
-	in[1] = in[1] * SceneViewport[3] + SceneViewport[1];
-
-	*winX=in[0];
-	*winY=in[1];
-	*winZ=in[2];
-}
-
 // ==========================================================================
 //                                                                        API
 // ==========================================================================
 
 // -----------------+
-// Init             : Initializes the OpenGL interface API
+// Init             : Initializes the OpenGL ES interface API
 // -----------------+
 static boolean Init(void)
 {
@@ -184,6 +118,8 @@ static void SetInitialStates(void)
 #ifdef GL_LIGHT_MODEL_AMBIENT
 	GLfloat LightDiffuse[] = {1.0f, 1.0f, 1.0f, 1.0f};
 #endif
+
+	pglEnableClientState(GL_VERTEX_ARRAY); // We always use this one
 
 	pglEnable(GL_TEXTURE_2D);	// two-dimensional texturing
 	pglTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
@@ -212,7 +148,6 @@ static void SetInitialStates(void)
 
 	pglLoadIdentity();
 	pglScalef(1.0f, 1.0f, -1.0f);
-	pglGetFloatv(GL_MODELVIEW_MATRIX, ModelMatrix); // added for new coronas' code (without depth buffer)
 
 	// Lighting for models
 #ifdef GL_LIGHT_MODEL_AMBIENT
@@ -242,77 +177,6 @@ static void SetModelView(INT32 w, INT32 h)
 	pglLoadIdentity();
 
 	GLPerspective(FIELD_OF_VIEW, ASPECT_RATIO);
-
-	// added for new coronas' code (without depth buffer)
-	pglGetIntegerv(GL_VIEWPORT, SceneViewport);
-	pglGetFloatv(GL_PROJECTION_MATRIX, ProjectionMatrix);
-}
-
-// -----------------+
-// ReadRect         : Read a rectangle region of the truecolor framebuffer
-//                  : store pixels as 16bit 565 RGB
-// Returns          : 16bit 565 RGB pixel array stored in dst_data
-// -----------------+
-static void ReadRect(INT32 x, INT32 y, INT32 width, INT32 height, INT32 dst_stride, UINT16 * dst_data)
-{
-	INT32 i;
-	if (dst_stride == width*3)
-	{
-		GLubyte*top = (GLvoid*)dst_data, *bottom = top + dst_stride * (height - 1);
-		GLubyte *row = malloc(dst_stride);
-		if (!row) return;
-		pglPixelStorei(GL_PACK_ALIGNMENT, 1);
-		pglReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, dst_data);
-		pglPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		for(i = 0; i < height/2; i++)
-		{
-			memcpy(row, top, dst_stride);
-			memcpy(top, bottom, dst_stride);
-			memcpy(bottom, row, dst_stride);
-			top += dst_stride;
-			bottom -= dst_stride;
-		}
-		free(row);
-	}
-	else
-	{
-		INT32 j;
-		GLubyte *image = malloc(width*height*3*sizeof (*image));
-		if (!image) return;
-		pglPixelStorei(GL_PACK_ALIGNMENT, 1);
-		pglReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, image);
-		pglPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		for (i = height-1; i >= 0; i--)
-		{
-			for (j = 0; j < width; j++)
-			{
-				dst_data[(height-1-i)*width+j] =
-				(UINT16)(
-				                 ((image[(i*width+j)*3]>>3)<<11) |
-				                 ((image[(i*width+j)*3+1]>>2)<<5) |
-				                 ((image[(i*width+j)*3+2]>>3)));
-			}
-		}
-		free(image);
-	}
-}
-
-// -----------------+
-// GClipRect        : Defines the 2D clipping window
-// -----------------+
-static void GClipRect(INT32 minx, INT32 miny, INT32 maxx, INT32 maxy, float nearclip)
-{
-	pglViewport(minx, GPUScreenHeight-maxy, maxx-minx, maxy-miny);
-	NearClippingPlane = nearclip;
-
-	pglMatrixMode(GL_PROJECTION);
-	pglLoadIdentity();
-	GLPerspective(FIELD_OF_VIEW, ASPECT_RATIO);
-	pglMatrixMode(GL_MODELVIEW);
-
-	// added for new coronas' code (without depth buffer)
-	pglGetIntegerv(GL_VIEWPORT, SceneViewport);
-	pglGetFloatv(GL_PROJECTION_MATRIX, ProjectionMatrix);
 }
 
 // -----------------+
@@ -362,8 +226,46 @@ static void ClearBuffer(boolean ColorMask, boolean DepthMask, FRGBAFloat *ClearC
 	SetBlend(DepthMask ? PF_Occlude | CurrentPolyFlags : CurrentPolyFlags&~PF_Occlude);
 
 	pglClear(ClearMask);
-	pglEnableClientState(GL_VERTEX_ARRAY); // We always use this one
-	pglEnableClientState(GL_TEXTURE_COORD_ARRAY); // And mostly this one, too
+	pglEnableClientState(GL_TEXTURE_COORD_ARRAY); // We mostly use this one
+}
+
+// -----------------+
+// ReadRect         : Read a rectangle region of the truecolor framebuffer
+//                  : store pixels as RGBA8888
+// Returns          : RGBA8888 pixel array stored in dst_data
+// -----------------+
+static void ReadRect(INT32 x, INT32 y, INT32 width, INT32 height, INT32 dst_stride, UINT16 * dst_data)
+{
+	INT32 i;
+	GLubyte*top = (GLvoid*)dst_data, *bottom = top + dst_stride * (height - 1);
+	GLubyte *row = malloc(dst_stride);
+	if (!row) return;
+	pglPixelStorei(GL_PACK_ALIGNMENT, 1);
+	pglReadPixels(x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, dst_data);
+	pglPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	for(i = 0; i < height/2; i++)
+	{
+		memcpy(row, top, dst_stride);
+		memcpy(top, bottom, dst_stride);
+		memcpy(bottom, row, dst_stride);
+		top += dst_stride;
+		bottom -= dst_stride;
+	}
+	free(row);
+}
+
+// -----------------+
+// GClipRect        : Defines the 2D clipping window
+// -----------------+
+static void GClipRect(INT32 minx, INT32 miny, INT32 maxx, INT32 maxy, float nearclip)
+{
+	pglViewport(minx, GPUScreenHeight-maxy, maxx-minx, maxy-miny);
+	NearClippingPlane = nearclip;
+
+	pglMatrixMode(GL_PROJECTION);
+	pglLoadIdentity();
+	GLPerspective(FIELD_OF_VIEW, ASPECT_RATIO);
+	pglMatrixMode(GL_MODELVIEW);
 }
 
 // -----------------+
@@ -371,6 +273,7 @@ static void ClearBuffer(boolean ColorMask, boolean DepthMask, FRGBAFloat *ClearC
 // -----------------+
 static void Draw2DLine(F2DCoord *v1, F2DCoord *v2, RGBA_t Color)
 {
+	GLfloat fcolor[4];
 	GLfloat p[12];
 	GLfloat dx, dy;
 	GLfloat angle;
@@ -390,8 +293,13 @@ static void Draw2DLine(F2DCoord *v1, F2DCoord *v2, RGBA_t Color)
 	p[6] = v2->x + dx;  p[7] = -(v2->y - dy); p[8] = 1;
 	p[9] = v1->x + dx;  p[10] = -(v1->y - dy); p[11] = 1;
 
+	fcolor[0] = (Color.s.red/255.0f);
+	fcolor[1] = (Color.s.green/255.0f);
+	fcolor[2] = (Color.s.blue/255.0f);
+	fcolor[3] = (Color.s.alpha/255.0f);
+
 	pglDisableClientState(GL_TEXTURE_COORD_ARRAY);
-	GLState_SetColorUBV((GLubyte*)&Color.s);
+	GLState_SetColor(fcolor[0], fcolor[1], fcolor[2], fcolor[3]);
 	pglVertexPointer(3, GL_FLOAT, 0, p);
 	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
@@ -441,103 +349,24 @@ static void ClearTextureCache(void)
 // the corona thing is there too, i have no idea if that stuff works with DrawIndexedTriangles and batching
 static void PreparePolygon(FSurfaceInfo *pSurf, FOutVector *pOutVerts, UINT32 PolyFlags)
 {
-	static GLRGBAFloat poly = {0,0,0,0};
-	static GLRGBAFloat tint = {0,0,0,0};
-	static GLRGBAFloat fade = {0,0,0,0};
+	(void)pOutVerts;
+	if (PolyFlags & PF_Corona)
+		PolyFlags &= ~(PF_NoDepthTest|PF_Corona);
 
 	SetBlend(PolyFlags);    //TODO: inline (#pragma..)
 
-	// PolyColor
-	if (pSurf)
+	// If Modulated, mix the surface colour to the texture
+	if (pSurf && (CurrentPolyFlags & PF_Modulated))
 	{
-		// If Modulated, mix the surface colour to the texture
-		if (CurrentPolyFlags & PF_Modulated)
-		{
-			// Poly color
-			poly.red    = byte2float(pSurf->PolyColor.s.red);
-			poly.green  = byte2float(pSurf->PolyColor.s.green);
-			poly.blue   = byte2float(pSurf->PolyColor.s.blue);
-			poly.alpha  = byte2float(pSurf->PolyColor.s.alpha);
+		GLRGBAFloat poly;
 
-			GLState_SetColorUBV((GLubyte*)&pSurf->PolyColor.s);
-		}
+		poly.red    = (pSurf->PolyColor.s.red/255.0f);
+		poly.green  = (pSurf->PolyColor.s.green/255.0f);
+		poly.blue   = (pSurf->PolyColor.s.blue/255.0f);
+		poly.alpha  = (pSurf->PolyColor.s.alpha/255.0f);
 
-		// Tint color
-		tint.red   = byte2float(pSurf->TintColor.s.red);
-		tint.green = byte2float(pSurf->TintColor.s.green);
-		tint.blue  = byte2float(pSurf->TintColor.s.blue);
-		tint.alpha = byte2float(pSurf->TintColor.s.alpha);
-
-		// Fade color
-		fade.red   = byte2float(pSurf->FadeColor.s.red);
-		fade.green = byte2float(pSurf->FadeColor.s.green);
-		fade.blue  = byte2float(pSurf->FadeColor.s.blue);
-		fade.alpha = byte2float(pSurf->FadeColor.s.alpha);
+		GLState_SetColor(poly.red, poly.green, poly.blue, poly.alpha);
 	}
-
-	// this test is added for new coronas' code (without depth buffer)
-	// I think I should do a separate function for drawing coronas, so it will be a little faster
-	if (PolyFlags & PF_Corona) // check to see if we need to draw the corona
-	{
-		UINT32 i, j;
-
-		//rem: all 8 (or 8.0f) values are hard coded: it can be changed to a higher value
-		GLfloat buf[8][8];
-		GLfloat cx, cy, cz;
-		GLfloat px = 0.0f, py = 0.0f, pz = -1.0f;
-		GLfloat scalef = 0.0f;
-
-		GLubyte c[4];
-
-		float alpha;
-
-		cx = (pOutVerts[0].x + pOutVerts[2].x) / 2.0f; // we should change the coronas' ...
-		cy = (pOutVerts[0].y + pOutVerts[2].y) / 2.0f; // ... code so its only done once.
-		cz = pOutVerts[0].z;
-
-		// I dont know if this is slow or not
-		GLProject(cx, cy, cz, &px, &py, &pz);
-		//GL_DBG_Printf("Projection: (%f, %f, %f)\n", px, py, pz);
-
-		if ((pz <  0.0l) ||
-			(px < -8.0l) ||
-			(py < SceneViewport[1]-8.0l) ||
-			(px > SceneViewport[2]+8.0l) ||
-			(py > SceneViewport[1]+SceneViewport[3]+8.0l))
-			return;
-
-		// the damned slow glReadPixels functions :(
-		pglReadPixels((INT32)px-4, (INT32)py, 8, 8, GL_DEPTH_COMPONENT, GL_FLOAT, buf);
-		//GL_DBG_Printf("DepthBuffer: %f %f\n", buf[0][0], buf[3][3]);
-
-		for (i = 0; i < 8; i++)
-			for (j = 0; j < 8; j++)
-				scalef += (pz > buf[i][j]+0.00005f) ? 0 : 1;
-
-		// quick test for screen border (not 100% correct, but looks ok)
-		if (px < 4) scalef -= (GLfloat)(8*(4-px));
-		if (py < SceneViewport[1]+4) scalef -= (GLfloat)(8*(SceneViewport[1]+4-py));
-		if (px > SceneViewport[2]-4) scalef -= (GLfloat)(8*(4-(SceneViewport[2]-px)));
-		if (py > SceneViewport[1]+SceneViewport[3]-4) scalef -= (GLfloat)(8*(4-(SceneViewport[1]+SceneViewport[3]-py)));
-
-		scalef /= 64;
-		//GL_DBG_Printf("Scale factor: %f\n", scalef);
-
-		if (scalef < 0.05f)
-			return;
-
-		// GLubyte c[4];
-		c[0] = pSurf->PolyColor.s.red;
-		c[1] = pSurf->PolyColor.s.green;
-		c[2] = pSurf->PolyColor.s.blue;
-
-		alpha = byte2float(pSurf->PolyColor.s.alpha);
-		alpha *= scalef; // change the alpha value (it seems better than changing the size of the corona)
-		c[3] = (unsigned char)(alpha * 255);
-		GLState_SetColorUBV(c);
-	}
-
-	Shader_SetUniforms(pSurf, &poly, &tint, &fade);
 }
 
 // -----------------+
@@ -581,8 +410,6 @@ static void DrawIndexedTriangles(FSurfaceInfo *pSurf, FOutVector *pOutVerts, UIN
 static void DrawSkyDome(FSkyDome *sky)
 {
 	int i, j;
-
-	Shader_SetUniforms(NULL, NULL, NULL, NULL);
 
 	// Build the sky dome! Yes!
 	if (sky->rebuild)
@@ -649,7 +476,7 @@ static void DrawSkyDome(FSkyDome *sky)
 	}
 
 	pglScalef(1.0f, 1.0f, 1.0f);
-	GLState_SetColorUBV(white);
+	GLState_SetColor(white[0], white[1], white[2], white[3]);
 
 	// bind with 0, so, switch back to normal pointer operation
 	if (GLExtension_vertex_buffer_object)
@@ -665,10 +492,6 @@ static void SetState(INT32 State, INT32 Value)
 	{
 		case GPU_STATE_MODEL_LIGHTING:
 			ModelLightingEnabled = Value ? GL_TRUE : GL_FALSE;
-			break;
-
-		case GPU_STATE_SHADERS:
-			ShadersAllowed = Value;
 			break;
 
 		case GPU_STATE_TEXTUREFILTERMODE:
@@ -702,13 +525,11 @@ static void CreateModelVBOs(model_t *model)
 	GLModel_GenerateVBOs(model);
 }
 
-#define BUFFER_OFFSET(i) ((void*)(i))
+#define BUFFER_OFFSET(i) ((char*)NULL + (i))
 
 static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 tics, INT32 nextFrameIndex, FTransform *pos, float scale, UINT8 flipped, UINT8 hflipped, FSurfaceInfo *Surface)
 {
 	static GLRGBAFloat poly = {0,0,0,0};
-	static GLRGBAFloat tint = {0,0,0,0};
-	static GLRGBAFloat fade = {0,0,0,0};
 
 	float pol = 0.0f;
 	float scalex, scaley, scalez;
@@ -721,10 +542,10 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 	int i;
 
 	// Because otherwise, scaling the screen negatively vertically breaks the lighting
-	GLfloat LightPos[] = {0.0f, 1.0f, 0.0f, 0.0f};
+	GLfloat LightPos[4] = {0.0f, 1.0f, 0.0f, 0.0f};
 #ifdef GL_LIGHT_MODEL_AMBIENT
-	GLfloat ambient[4];
-	GLfloat diffuse[4];
+	float ambient[4];
+	float diffuse[4];
 #endif
 
 	// Affect input model scaling
@@ -746,63 +567,48 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 			pol = 0.0f;
 	}
 
-	poly.red    = byte2float(Surface->PolyColor.s.red);
-	poly.green  = byte2float(Surface->PolyColor.s.green);
-	poly.blue   = byte2float(Surface->PolyColor.s.blue);
-	poly.alpha  = byte2float(Surface->PolyColor.s.alpha);
+	poly.red    = (Surface->PolyColor.s.red/255.0f);
+	poly.green  = (Surface->PolyColor.s.green/255.0f);
+	poly.blue   = (Surface->PolyColor.s.blue/255.0f);
+	poly.alpha  = (Surface->PolyColor.s.alpha/255.0f);
 
 #ifdef GL_LIGHT_MODEL_AMBIENT
 	if (ModelLightingEnabled)
 	{
-		if (!ShadersEnabled)
-		{
-			ambient[0] = poly.red;
-			ambient[1] = poly.green;
-			ambient[2] = poly.blue;
-			ambient[3] = poly.alpha;
+		ambient[0] = poly.red;
+		ambient[1] = poly.green;
+		ambient[2] = poly.blue;
+		ambient[3] = poly.alpha;
 
-			diffuse[0] = poly.red;
-			diffuse[1] = poly.green;
-			diffuse[2] = poly.blue;
-			diffuse[3] = poly.alpha;
+		diffuse[0] = poly.red;
+		diffuse[1] = poly.green;
+		diffuse[2] = poly.blue;
+		diffuse[3] = poly.alpha;
 
-			if (ambient[0] > 0.75f)
-				ambient[0] = 0.75f;
-			if (ambient[1] > 0.75f)
-				ambient[1] = 0.75f;
-			if (ambient[2] > 0.75f)
-				ambient[2] = 0.75f;
+		if (ambient[0] > 0.75f)
+			ambient[0] = 0.75f;
+		if (ambient[1] > 0.75f)
+			ambient[1] = 0.75f;
+		if (ambient[2] > 0.75f)
+			ambient[2] = 0.75f;
 
-			pglLightfv(GL_LIGHT0, GL_POSITION, LightPos);
-
-			pglEnable(GL_LIGHTING);
-			pglMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ambient);
-			pglMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, diffuse);
-		}
+		pglLightfv(GL_LIGHT0, GL_POSITION, LightPos);
 		pglShadeModel(GL_SMOOTH);
+
+		pglEnable(GL_LIGHTING);
+		pglMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ambient);
+		pglMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, diffuse);
 	}
 #endif
 	else
-		GLState_SetColorUBV((GLubyte*)&Surface->PolyColor.s);
-
-	tint.red   = byte2float(Surface->TintColor.s.red);
-	tint.green = byte2float(Surface->TintColor.s.green);
-	tint.blue  = byte2float(Surface->TintColor.s.blue);
-	tint.alpha = byte2float(Surface->TintColor.s.alpha);
-
-	fade.red   = byte2float(Surface->FadeColor.s.red);
-	fade.green = byte2float(Surface->FadeColor.s.green);
-	fade.blue  = byte2float(Surface->FadeColor.s.blue);
-	fade.alpha = byte2float(Surface->FadeColor.s.alpha);
+		GLState_SetColor(poly.red, poly.green, poly.blue, poly.alpha);
 
 	flags = (Surface->PolyFlags | PF_Modulated);
 	if (Surface->PolyFlags & (PF_Additive|PF_AdditiveSource|PF_Subtractive|PF_ReverseSubtract|PF_Multiplicative))
 		flags |= PF_Occlude;
 	else if (Surface->PolyColor.s.alpha == 0xFF)
 		flags |= (PF_Occlude | PF_Masked);
-
 	SetBlend(flags);
-	Shader_SetUniforms(Surface, &poly, &tint, &fade);
 
 	pglEnable(GL_CULL_FACE);
 	pglEnable(GL_NORMALIZE);
@@ -913,12 +719,13 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 			{
 				short *vertPtr;
 				char *normPtr;
-				int j = 0;
+				int j;
 
 				// Dangit, I soooo want to do this in a GLSL shader...
 				GLModel_AllocLerpTinyBuffer(mesh->numVertices * sizeof(short) * 3);
 				vertPtr = vertTinyBuffer;
 				normPtr = normTinyBuffer;
+				j = 0;
 
 				for (j = 0; j < mesh->numVertices * 3; j++)
 				{
@@ -953,6 +760,7 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 
 					pglDrawArrays(GL_TRIANGLES, 0, mesh->numTriangles * 3);
 					// No tinyframes, no mesh indices
+					//pglDrawElements(GL_TRIANGLES, mesh->numTriangles * 3, GL_UNSIGNED_SHORT, mesh->indices);
 					pglBindBuffer(GL_ARRAY_BUFFER, 0);
 				}
 				else
@@ -998,8 +806,7 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, INT32 duration, INT32 
 #ifdef GL_LIGHT_MODEL_AMBIENT
 	if (ModelLightingEnabled)
 	{
-		if (!ShadersEnabled)
-			pglDisable(GL_LIGHTING);
+		pglDisable(GL_LIGHTING);
 		pglShadeModel(GL_FLAT);
 	}
 #endif
@@ -1062,8 +869,6 @@ static void SetTransform(FTransform *stransform)
 	if (shearing)
 	{
 		float fdy = stransform->viewaiming * 2;
-		if (stransform->flip)
-			fdy *= -1.0f;
 		pglTranslatef(0.0f, -fdy/BASEVIDHEIGHT, 0.0f);
 	}
 
@@ -1075,11 +880,7 @@ static void SetTransform(FTransform *stransform)
 	else
 		GLPerspective(used_fov, ASPECT_RATIO);
 
-	pglGetFloatv(GL_PROJECTION_MATRIX, ProjectionMatrix); // added for new coronas' code (without depth buffer)
 	pglMatrixMode(GL_MODELVIEW);
-
-	pglGetFloatv(GL_MODELVIEW_MATRIX, ModelMatrix); // added for new coronas' code (without depth buffer)
-
 }
 
 static INT32 GetTextureUsed(void)
@@ -1103,9 +904,9 @@ static void PostImgRedraw(float points[GPU_POSTIMGVERTS][GPU_POSTIMGVERTS][2])
 	};
 
 	// Use a power of two texture, dammit
-	if (GPUScreenWidth <= 1024)
+	if(GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if (GPUScreenWidth <= 512)
+	if(GPUScreenWidth <= 512)
 		texsize = 512;
 
 	// X/Y stretch fix for all resolutions(!)
@@ -1119,12 +920,11 @@ static void PostImgRedraw(float points[GPU_POSTIMGVERTS][GPU_POSTIMGVERTS][2])
 
 	// Draw a black square behind the screen texture,
 	// so nothing shows through the edges
-	GLState_SetColorUBV(white);
+	GLState_SetColor(white[0], white[1], white[2], white[3]);
 
 	pglVertexPointer(3, GL_FLOAT, 0, blackBack);
 	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
-	pglEnableClientState(GL_TEXTURE_COORD_ARRAY);
 	for(x=0;x<GPU_POSTIMGVERTS-1;x++)
 	{
 		for(y=0;y<GPU_POSTIMGVERTS-1;y++)
@@ -1209,15 +1009,15 @@ static void DrawIntermissionBG(void)
 
 	float fix[8];
 
-	if (GPUScreenWidth <= 1024)
+	if(GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if (GPUScreenWidth <= 512)
+	if(GPUScreenWidth <= 512)
 		texsize = 512;
 
 	xfix = 1/((float)(texsize)/((float)((GPUScreenWidth))));
 	yfix = 1/((float)(texsize)/((float)((GPUScreenHeight))));
 
-	// const float GPU_POSTIMGVERTS[12]
+	// const float screenVerts[12]
 
 	// float fix[8];
 	fix[0] = 0.0f;
@@ -1232,7 +1032,7 @@ static void DrawIntermissionBG(void)
 	pglClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
 	pglBindTexture(GL_TEXTURE_2D, ScreenTexture);
-	GLState_SetColorUBV(white);
+	GLState_SetColor(white[0], white[1], white[2], white[3]);
 
 	pglTexCoordPointer(2, GL_FLOAT, 0, fix);
 	pglVertexPointer(3, GL_FLOAT, 0, screenVerts);
@@ -1267,13 +1067,10 @@ static void DoScreenWipe(void)
 		1.0f, 1.0f
 	};
 
-	if (!GLExtension_multitexture)
-		return;
-
 	// Use a power of two texture, dammit
-	if (GPUScreenWidth <= 1024)
+	if(GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if (GPUScreenWidth <= 512)
+	if(GPUScreenWidth <= 512)
 		texsize = 512;
 
 	xfix = 1/((float)(texsize)/((float)((GPUScreenWidth))));
@@ -1298,7 +1095,7 @@ static void DoScreenWipe(void)
 
 	// Draw the original screen
 	pglBindTexture(GL_TEXTURE_2D, WipeStartTexture);
-	GLState_SetColorUBV(white);
+	GLState_SetColor(white[0], white[1], white[2], white[3]);
 	pglTexCoordPointer(2, GL_FLOAT, 0, fix);
 	pglVertexPointer(3, GL_FLOAT, 0, screenVerts);
 	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
@@ -1357,9 +1154,9 @@ static void DrawScreenFinalTexture(int width, int height)
 	float off[12];
 	float fix[8];
 
-	if (GPUScreenWidth <= 1024)
+	if(GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if (GPUScreenWidth <= 512)
+	if(GPUScreenWidth <= 512)
 		texsize = 512;
 
 	xfix = 1/((float)(texsize)/((float)((GPUScreenWidth))));
@@ -1409,7 +1206,7 @@ static void DrawScreenFinalTexture(int width, int height)
 	ClearBuffer(true, false, &clearColour);
 	pglBindTexture(GL_TEXTURE_2D, FinalScreenTexture);
 
-	GLState_SetColorUBV(white);
+	GLState_SetColor(white[0], white[1], white[2], white[3]);
 
 	pglTexCoordPointer(2, GL_FLOAT, 0, fix);
 	pglVertexPointer(3, GL_FLOAT, 0, off);
@@ -1420,57 +1217,30 @@ static void DrawScreenFinalTexture(int width, int height)
 
 static void SetShader(int type)
 {
-#ifdef GL_SHADERS
-	Shader_Set(GLBackend_GetShaderType(type));
-#else
 	(void)type;
-#endif
 }
 
 static boolean CompileShaders(void)
 {
-#ifdef GL_SHADERS
-	return Shader_Compile();
-#else
 	return false;
-#endif
 }
 
 static void SetShaderInfo(INT32 info, INT32 value)
 {
-#ifdef GL_SHADERS
-	Shader_SetInfo(info, value);
-#else
 	(void)info;
 	(void)value;
-#endif
 }
 
 static void LoadCustomShader(int number, char *shader, size_t size, boolean fragment)
 {
-#ifdef GL_SHADERS
-	Shader_LoadCustom(number, shader, size, fragment);
-#else
 	(void)number;
 	(void)shader;
 	(void)size;
 	(void)fragment;
-#endif
 }
 
-static void UnSetShader(void)
-{
-#ifdef GL_SHADERS
-	Shader_UnSet();
-#endif
-}
-
-static void CleanShaders(void)
-{
-#ifdef GL_SHADERS
-	Shader_Clean();
-#endif
-}
+static void UnSetShader(void) {}
+static void CleanShaders(void) {}
 
 struct GPURenderingAPI GLInterfaceAPI = {
 	Init,

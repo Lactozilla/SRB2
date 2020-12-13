@@ -213,19 +213,20 @@ enum EFilterMode
 // Vertex count for post processing effects
 #define GPU_POSTIMGVERTS 10
 
-#ifdef GL_SHADERS
 // Predefined shader types
-enum
+enum EShaderType
 {
 	SHADER_DEFAULT = 0,
 
-	SHADER_FLOOR,
+	SHADER_LEVEL_FIRST,
+	SHADER_FLOOR = SHADER_LEVEL_FIRST,
 	SHADER_WALL,
 	SHADER_SPRITE,
 	SHADER_MODEL, SHADER_MODEL_LIGHTING,
 	SHADER_WATER,
 	SHADER_FOG,
 	SHADER_SKY,
+	SHADER_LEVEL_LAST = SHADER_SKY,
 
 #ifdef HAVE_GLES2
 	SHADER_FADEMASK,
@@ -234,6 +235,8 @@ enum
 
 	NUMBASESHADERS,
 };
+
+#ifdef GL_SHADERS
 
 // Maximum amount of shader programs
 // Must be higher than NUMBASESHADERS
@@ -247,6 +250,8 @@ struct FShaderSource
 };
 typedef struct FShaderSource FShaderSource;
 
+#endif
+
 // Custom shader reference table
 struct FShaderReferenceArray
 {
@@ -254,8 +259,6 @@ struct FShaderReferenceArray
 	INT32 id;
 };
 typedef struct FShaderReferenceArray FShaderReferenceArray;
-
-#endif
 
 struct FSkyVertex
 {

@@ -512,7 +512,7 @@ static void GIF_rgbconvert(UINT8 *linear, UINT8 *scr)
 {
 	UINT8 r, g, b;
 	size_t src = 0, dest = 0;
-	size_t size = (vid.width * vid.height * 3);
+	size_t size = (vid.width * vid.height * SCREENSHOT_BITS);
 
 	InitColorLUT(&gif_colorlookup, (gif_localcolortable) ? gif_framepalette : gif_headerpalette, true);
 
@@ -522,7 +522,7 @@ static void GIF_rgbconvert(UINT8 *linear, UINT8 *scr)
 		g = (UINT8)linear[src + 1];
 		b = (UINT8)linear[src + 2];
 		scr[dest] = GetColorLUTDirect(&gif_colorlookup, r, g, b);
-		src += (3 * scrbuf_downscaleamt);
+		src += (SCREENSHOT_BITS * scrbuf_downscaleamt);
 		dest += scrbuf_downscaleamt;
 	}
 }
@@ -569,7 +569,7 @@ static void GIF_framewrite(void)
 #ifdef HWRENDER
 		else if (rendermode == render_opengl)
 		{
-			UINT8 *linear = HWR_GetScreenshot();
+			UINT8 *linear = HWR_GetScreenBuffer();
 			GIF_rgbconvert(linear, movie_screen);
 			free(linear);
 		}
@@ -585,7 +585,7 @@ static void GIF_framewrite(void)
 		// Copy the current OpenGL frame into the base screen
 		if (rendermode == render_opengl)
 		{
-			UINT8 *linear = HWR_GetScreenshot();
+			UINT8 *linear = HWR_GetScreenBuffer();
 			GIF_rgbconvert(linear, screens[0]);
 			free(linear);
 		}
