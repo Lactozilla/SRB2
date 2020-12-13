@@ -342,6 +342,28 @@ extern PFNglDeleteBuffers pglDeleteBuffers;
 typedef void (R_GL_APIENTRY * PFNglBlendEquation) (GLenum mode);
 extern PFNglBlendEquation pglBlendEquation;
 
+/* 3.0 functions for framebuffers and renderbuffers */
+typedef void (R_GL_APIENTRY * PFNglGenFramebuffers) (GLsizei n, GLuint *ids);
+extern PFNglGenFramebuffers pglGenFramebuffers;
+typedef void (R_GL_APIENTRY * PFNglBindFramebuffer) (GLenum target, GLuint framebuffer);
+extern PFNglBindFramebuffer pglBindFramebuffer;
+typedef void (R_GL_APIENTRY * PFNglDeleteFramebuffers) (GLsizei n, GLuint *ids);
+extern PFNglDeleteFramebuffers pglDeleteFramebuffers;
+typedef void (R_GL_APIENTRY * PFNglFramebufferTexture2D) (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
+extern PFNglFramebufferTexture2D pglFramebufferTexture2D;
+typedef GLenum (R_GL_APIENTRY * PFNglCheckFramebufferStatus) (GLenum target);
+extern PFNglCheckFramebufferStatus pglCheckFramebufferStatus;
+typedef void (R_GL_APIENTRY * PFNglGenRenderbuffers) (GLsizei n, GLuint *renderbuffers);
+extern PFNglGenRenderbuffers pglGenRenderbuffers;
+typedef void (R_GL_APIENTRY * PFNglBindRenderbuffer) (GLenum target, GLuint renderbuffer);
+extern PFNglBindRenderbuffer pglBindRenderbuffer;
+typedef void (R_GL_APIENTRY * PFNglDeleteRenderbuffers) (GLsizei n, GLuint *renderbuffers);
+extern PFNglDeleteRenderbuffers pglDeleteRenderbuffers;
+typedef void (R_GL_APIENTRY * PFNglRenderbufferStorage) (GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
+extern PFNglRenderbufferStorage pglRenderbufferStorage;
+typedef void (R_GL_APIENTRY * PFNglFramebufferRenderbuffer) (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLenum renderbuffer);
+extern PFNglFramebufferRenderbuffer pglFramebufferRenderbuffer;
+
 // ==========================================================================
 //                                                                  FUNCTIONS
 // ==========================================================================
@@ -357,7 +379,7 @@ boolean GLBackend_LoadLegacyFunctions(void);
 void   *GLBackend_GetFunction(const char *proc);
 INT32   GLBackend_GetShaderType(INT32 type);
 
-#define GLBackend_GetFunctionPointer(func) \
+#define GETOPENGLFUNC(func) \
 	p ## gl ## func = GLBackend_GetFunction("gl" #func); \
 	if (!(p ## gl ## func)) \
 	{ \
@@ -365,7 +387,7 @@ INT32   GLBackend_GetShaderType(INT32 type);
 		return false; \
 	}
 
-#define GLBackend_GetFunctionPointerOrFallback(func1, func2) \
+#define GETOPENGLFUNCALT(func1, func2) \
 	p ## gl ## func1 = GLBackend_GetFunction("gl" #func1); \
 	if (!(p ## gl ## func1)) \
 	{ \
@@ -378,8 +400,10 @@ INT32   GLBackend_GetShaderType(INT32 type);
 		} \
 	}
 
-#define GETOPENGLFUNC    GLBackend_GetFunctionPointer
-#define GETOPENGLFUNCALT GLBackend_GetFunctionPointerOrFallback
+#define GETOPENGLFUNCTRY(func) \
+	p ## gl ## func = GLBackend_GetFunction("gl" #func); \
+	if (!(p ## gl ## func)) \
+		GL_DBG_Printf("Failed to get OpenGL function %s\n", #func);
 
 void GLState_SetSurface(INT32 w, INT32 h);
 void GLState_SetPalette(RGBA_t *palette);
@@ -392,6 +416,7 @@ void GLState_SetColorUBV(const GLubyte *v);
 
 void    GLExtension_Init(void);
 boolean GLExtension_Available(const char *extension);
+boolean GLExtension_LoadFunctions(void);
 
 void GLTexture_Set(HWRTexture_t *pTexInfo);
 void GLTexture_Delete(HWRTexture_t *pTexInfo);
@@ -413,6 +438,15 @@ boolean GLTexture_CanGenerateMipmaps(HWRTexture_t *pTexInfo);
 
 void GLTexture_GenerateScreenTexture(GLuint *name);
 int  GLTexture_GetMemoryUsage(FTextureInfo *head);
+
+void GLFramebuffer_Generate(void);
+void GLFramebuffer_Delete(void);
+
+void GLFramebuffer_GenerateAttachments(void);
+void GLFramebuffer_DeleteAttachments(void);
+
+void GLFramebuffer_Enable(void);
+void GLFramebuffer_Disable(void);
 
 void GLModel_GenerateVBOs(model_t *model);
 void GLModel_AllocLerpBuffer(size_t size);
@@ -536,12 +570,13 @@ extern FTextureInfo *TexCacheTail;
 extern FTextureInfo *TexCacheHead;
 
 extern GLuint CurrentTexture;
-extern GLuint BlankTexture; // With OpenGL 1.1+, the first texture should be 1
+extern GLuint BlankTexture;
 
-extern GLuint ScreenTexture;
-extern GLuint FinalScreenTexture;
-extern GLuint WipeStartTexture;
-extern GLuint WipeEndTexture;
+extern GLuint ScreenTexture, FinalScreenTexture;
+extern GLuint WipeStartTexture, WipeEndTexture;
+
+extern GLuint FramebufferObject, FramebufferTexture, RenderbufferObject;
+extern GLboolean FrameBufferEnabled, RenderToFramebuffer;
 
 extern UINT32 CurrentPolyFlags;
 
@@ -579,6 +614,7 @@ extern boolean GLExtension_vertex_buffer_object;
 extern boolean GLExtension_texture_filter_anisotropic;
 extern boolean GLExtension_vertex_program;
 extern boolean GLExtension_fragment_program;
+extern boolean GLExtension_framebuffer_object;
 extern boolean GLExtension_shaders;
 
 #endif // _R_GLCOMMON_H_

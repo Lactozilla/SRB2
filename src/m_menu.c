@@ -1449,7 +1449,7 @@ static menuitem_t OP_OpenGLOptionsMenu[] =
 	{IT_STRING|IT_CVAR,         NULL, "Field of view",       &cv_fov,                  83},
 
 	{IT_HEADER, NULL, "Miscellaneous", NULL, 102},
-	{IT_STRING|IT_CVAR,         NULL, "Bit depth",           &cv_scr_depth,           114},
+	{IT_STRING|IT_CVAR,         NULL, "Framebuffer objects", &cv_glframebuffer,       114},
 	{IT_STRING|IT_CVAR,         NULL, "Texture filter",      &cv_glfiltermode,        124},
 	{IT_STRING|IT_CVAR,         NULL, "Anisotropic",         &cv_glanisotropicmode,   134},
 #ifdef ALAM_LIGHTING

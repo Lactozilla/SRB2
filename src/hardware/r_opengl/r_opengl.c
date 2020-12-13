@@ -66,22 +66,10 @@ boolean GLBackend_LoadFunctions(void)
 
 boolean GLBackend_LoadContextFunctions(void)
 {
-	if (GLExtension_multitexture)
-	{
-		GETOPENGLFUNC(ActiveTexture)
-		GETOPENGLFUNC(ClientActiveTexture)
-	}
-
-	if (GLExtension_vertex_buffer_object)
-	{
-		GETOPENGLFUNC(GenBuffers)
-		GETOPENGLFUNC(BindBuffer)
-		GETOPENGLFUNC(BufferData)
-		GETOPENGLFUNC(DeleteBuffers)
-	}
+	GLExtension_LoadFunctions();
 
 	if (GLMajorVersion >= 2)
-		GETOPENGLFUNC(BlendEquation)
+		GETOPENGLFUNCTRY(BlendEquation)
 
 	if (GLTexture_InitMipmapping())
 		MipmappingSupported = GL_TRUE;
@@ -194,8 +182,6 @@ static void SetInitialStates(void)
 	pglEnable(GL_ALPHA_TEST);
 	pglAlphaFunc(GL_NOTEQUAL, 0.0f);
 
-	pglEnable(GL_DEPTH_TEST);	// check the depth buffer
-	pglDepthMask(GL_TRUE);		// enable writing to depth buffer
 	GPU->SetDepthBuffer();
 
 	// Hurdler: not necessary, is it?
@@ -226,13 +212,6 @@ static void SetInitialStates(void)
 // -----------------+
 static void SetModelView(INT32 w, INT32 h)
 {
-	// The screen textures need to be flushed if the width or height change so that they be remade for the correct size
-	if (GPUScreenWidth != w || GPUScreenHeight != h)
-		GPU->FlushScreenTextures();
-
-	GPUScreenWidth = (GLint)w;
-	GPUScreenHeight = (GLint)h;
-
 	pglViewport(0, 0, w, h);
 
 	pglMatrixMode(GL_PROJECTION);
@@ -663,12 +642,16 @@ static void SetState(INT32 State, INT32 Value)
 {
 	switch (State)
 	{
-		case GPU_STATE_MODEL_LIGHTING:
-			ModelLightingEnabled = Value ? GL_TRUE : GL_FALSE;
+		case GPU_STATE_SHADERS:
+			ShadersAllowed = Value ? GL_TRUE : GL_FALSE;
 			break;
 
-		case GPU_STATE_SHADERS:
-			ShadersAllowed = Value;
+		case GPU_STATE_FRAMEBUFFER:
+			FrameBufferEnabled = Value ? GL_TRUE : GL_FALSE;
+			break;
+
+		case GPU_STATE_MODEL_LIGHTING:
+			ModelLightingEnabled = Value ? GL_TRUE : GL_FALSE;
 			break;
 
 		case GPU_STATE_TEXTUREFILTERMODE:
@@ -1346,7 +1329,7 @@ static void MakeScreenFinalTexture(void)
 	GLTexture_GenerateScreenTexture(&FinalScreenTexture);
 }
 
-static void DrawScreenFinalTexture(int width, int height)
+static void DrawFinalScreenTexture(INT32 width, INT32 height)
 {
 	float xfix, yfix;
 	float origaspect, newaspect;
@@ -1511,7 +1494,7 @@ struct GPURenderingAPI GLInterfaceAPI = {
 	DoScreenWipe,
 	NULL,
 	DrawIntermissionBG,
-	DrawScreenFinalTexture,
+	DrawFinalScreenTexture,
 
 	PostImgRedraw,
 

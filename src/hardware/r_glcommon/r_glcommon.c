@@ -42,13 +42,14 @@ GLint  GPUMaximumAnisotropy;
 FTextureInfo *TexCacheTail = NULL;
 FTextureInfo *TexCacheHead = NULL;
 
-GLuint CurrentTexture = 0;
-GLuint BlankTexture = 0;
+GLuint CurrentTexture;
+GLuint BlankTexture;
 
-GLuint ScreenTexture = 0;
-GLuint FinalScreenTexture = 0;
-GLuint WipeStartTexture = 0;
-GLuint WipeEndTexture = 0;
+GLuint ScreenTexture, FinalScreenTexture;
+GLuint WipeStartTexture, WipeEndTexture;
+
+GLuint FramebufferObject, FramebufferTexture, RenderbufferObject;
+GLboolean FrameBufferEnabled = GL_FALSE, RenderToFramebuffer = GL_FALSE;
 
 UINT32 CurrentPolyFlags;
 
@@ -212,6 +213,18 @@ PFNglDeleteBuffers pglDeleteBuffers;
 
 /* 2.0 functions */
 PFNglBlendEquation pglBlendEquation;
+
+/* 3.0 functions for framebuffers and renderbuffers */
+PFNglGenFramebuffers pglGenFramebuffers;
+PFNglBindFramebuffer pglBindFramebuffer;
+PFNglDeleteFramebuffers pglDeleteFramebuffers;
+PFNglFramebufferTexture2D pglFramebufferTexture2D;
+PFNglCheckFramebufferStatus pglCheckFramebufferStatus;
+PFNglGenRenderbuffers pglGenRenderbuffers;
+PFNglBindRenderbuffer pglBindRenderbuffer;
+PFNglDeleteRenderbuffers pglDeleteRenderbuffers;
+PFNglRenderbufferStorage pglRenderbufferStorage;
+PFNglFramebufferRenderbuffer pglFramebufferRenderbuffer;
 
 // ==========================================================================
 //                                                                  FUNCTIONS
@@ -383,8 +396,25 @@ INT32 GLBackend_GetShaderType(INT32 type)
 
 void GLState_SetSurface(INT32 w, INT32 h)
 {
+	// The screen textures need to be flushed if the width or height change so that they be remade for the correct size
+	if (GPUScreenWidth != w || GPUScreenHeight != h)
+	{
+		GPU->FlushScreenTextures();
+		GLFramebuffer_DeleteAttachments();
+	}
+
+	GPUScreenWidth = (GLint)w;
+	GPUScreenHeight = (GLint)h;
+
 	GPU->SetModelView(w, h);
 	GPU->SetInitialStates();
+
+	RenderToFramebuffer = FrameBufferEnabled;
+	GLFramebuffer_Disable();
+
+	if (RenderToFramebuffer)
+		GLFramebuffer_Enable();
+
 	pglClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
@@ -448,6 +478,9 @@ void GLState_SetClamp(GLenum pname)
 
 void GLState_SetDepthBuffer(void)
 {
+	pglEnable(GL_DEPTH_TEST);    // check the depth buffer
+	pglDepthMask(GL_TRUE);       // enable writing to depth buffer
+
 	// Hurdler: all that are permanent states
 	if (pglClearDepthf)
 		pglClearDepthf(1.0f);
@@ -725,7 +758,7 @@ void GLExtension_Init(void)
 
 boolean GLExtension_Available(const char *extension)
 {
-#if defined(HAVE_GLES) && defined(HAVE_SDL)
+#ifdef HAVE_SDL
 	return (SDL_GL_ExtensionSupported(extension) == SDL_TRUE ? true : false);
 #else
 	const GLubyte *start = GLExtensions;
@@ -752,6 +785,41 @@ boolean GLExtension_Available(const char *extension)
 
 	return false;
 #endif
+}
+
+boolean GLExtension_LoadFunctions(void)
+{
+	if (GLExtension_multitexture)
+	{
+		GETOPENGLFUNC(ActiveTexture)
+#ifndef HAVE_GLES2
+		GETOPENGLFUNC(ClientActiveTexture)
+#endif
+	}
+
+	if (GLExtension_vertex_buffer_object)
+	{
+		GETOPENGLFUNC(GenBuffers)
+		GETOPENGLFUNC(BindBuffer)
+		GETOPENGLFUNC(BufferData)
+		GETOPENGLFUNC(DeleteBuffers)
+	}
+
+	if (GLExtension_framebuffer_object)
+	{
+		GETOPENGLFUNC(GenFramebuffers);
+		GETOPENGLFUNC(BindFramebuffer);
+		GETOPENGLFUNC(DeleteFramebuffers);
+		GETOPENGLFUNC(FramebufferTexture2D);
+		GETOPENGLFUNC(CheckFramebufferStatus);
+		GETOPENGLFUNC(GenRenderbuffers);
+		GETOPENGLFUNC(BindRenderbuffer);
+		GETOPENGLFUNC(DeleteRenderbuffers);
+		GETOPENGLFUNC(RenderbufferStorage);
+		GETOPENGLFUNC(FramebufferRenderbuffer);
+	}
+
+	return true;
 }
 
 static void PrintExtensions(const GLubyte *extensions)
@@ -1351,6 +1419,116 @@ int GLTexture_GetMemoryUsage(FTextureInfo *head)
 	}
 
 	return res;
+}
+
+void GLFramebuffer_Generate(void)
+{
+	if (!GLExtension_framebuffer_object)
+		return;
+
+	// Generate the framebuffer
+	if (FramebufferObject == 0)
+		pglGenFramebuffers(1, &FramebufferObject);
+
+	if (pglCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
+		GLFramebuffer_GenerateAttachments();
+}
+
+void GLFramebuffer_Delete(void)
+{
+	if (!GLExtension_framebuffer_object)
+		return;
+
+	// Unbind the framebuffer
+	pglBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	if (FramebufferObject)
+		pglDeleteFramebuffers(1, &FramebufferObject);
+
+	GLFramebuffer_DeleteAttachments();
+	FramebufferObject = 0;
+}
+
+void GLFramebuffer_GenerateAttachments(void)
+{
+	if (!GLExtension_framebuffer_object)
+		return;
+
+	// Bind the framebuffer
+	pglBindFramebuffer(GL_FRAMEBUFFER, FramebufferObject);
+
+	// Generate the framebuffer texture
+	if (FramebufferTexture == 0)
+	{
+		pglGenTextures(1, &FramebufferTexture);
+		pglBindTexture(GL_TEXTURE_2D, FramebufferTexture);
+		pglTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, GPUScreenWidth, GPUScreenHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		pglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		pglBindTexture(GL_TEXTURE_2D, 0);
+
+		// Attach the framebuffer texture to the framebuffer
+		pglFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, FramebufferTexture, 0);
+	}
+
+	// Generate the renderbuffer
+	if (RenderbufferObject == 0)
+	{
+		pglGenRenderbuffers(1, &RenderbufferObject);
+
+		pglBindRenderbuffer(GL_RENDERBUFFER, RenderbufferObject);
+		pglRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, GPUScreenWidth, GPUScreenHeight);
+		pglFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, RenderbufferObject);
+
+		// Clear the renderbuffer
+		GPU->ClearBuffer(true, true, NULL);
+
+		pglBindRenderbuffer(GL_RENDERBUFFER, 0);
+	}
+
+	// Unbind the framebuffer
+	pglBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void GLFramebuffer_DeleteAttachments(void)
+{
+	if (!GLExtension_framebuffer_object)
+		return;
+
+	// Unbind the framebuffer
+	pglBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	if (FramebufferTexture)
+		pglDeleteTextures(1, &FramebufferTexture);
+
+	if (RenderbufferObject)
+		pglDeleteRenderbuffers(1, &RenderbufferObject);
+
+	FramebufferTexture = 0;
+	RenderbufferObject = 0;
+}
+
+void GLFramebuffer_Enable(void)
+{
+	if (!GLExtension_framebuffer_object)
+		return;
+
+	if (FramebufferObject == 0)
+		GLFramebuffer_Generate();
+	else if (FramebufferTexture == 0 || RenderbufferObject == 0)
+		GLFramebuffer_GenerateAttachments();
+
+	pglBindFramebuffer(GL_FRAMEBUFFER, FramebufferObject);
+	pglBindRenderbuffer(GL_RENDERBUFFER, RenderbufferObject);
+}
+
+void GLFramebuffer_Disable(void)
+{
+	if (!GLExtension_framebuffer_object)
+		return;
+
+	pglBindFramebuffer(GL_FRAMEBUFFER, 0);
+	pglBindRenderbuffer(GL_RENDERBUFFER, 0);
 }
 
 // -----------------+

@@ -5697,27 +5697,15 @@ static void HWR_DrawSkyBackground(player_t *player)
 
 
 // -----------------+
-// HWR_ClearView : clear the viewwindow, with maximum z value
+// HWR_ClearView    : clear the viewwindow, with maximum z value
 // -----------------+
 static inline void HWR_ClearView(void)
 {
-	//  3--2
-	//  | /|
-	//  |/ |
-	//  0--1
-
-	/// \bug faB - enable depth mask, disable color mask
-
-	GPU->GClipRect((INT32)gl_viewwindowx,
-	                 (INT32)gl_viewwindowy,
+	GPU->GClipRect((INT32)gl_viewwindowx, (INT32)gl_viewwindowy,
 	                 (INT32)(gl_viewwindowx + gl_viewwidth),
 	                 (INT32)(gl_viewwindowy + gl_viewheight),
 	                 ZCLIP_PLANE);
-	GPU->ClearBuffer(false, true, 0);
-
-	//disable clip window - set to full size
-	// rem by Hurdler
-	// GPU->GClipRect(0, 0, vid.width, vid.height);
+	GPU->ClearBuffer(false, true, NULL);
 }
 
 
@@ -6242,6 +6230,7 @@ static CV_PossibleValue_t glmodelinterpolation_cons_t[] = {{0, "Off"}, {1, "Some
 static CV_PossibleValue_t glfakecontrast_cons_t[] = {{0, "Off"}, {1, "On"}, {2, "Smooth"}, {0, NULL}};
 static CV_PossibleValue_t glshearing_cons_t[] = {{0, "Off"}, {1, "On"}, {2, "Third-person"}, {0, NULL}};
 
+static void CV_glframebuffer_OnChange(void);
 static void CV_glfiltermode_OnChange(void);
 static void CV_glanisotropic_OnChange(void);
 
@@ -6255,7 +6244,8 @@ CV_PossibleValue_t glanisotropicmode_cons_t[] = {{1, "MIN"}, {16, "MAX"}, {0, NU
 
 consvar_t cv_glshaders = CVAR_INIT ("gr_shaders", "On", CV_SAVE, glshaders_cons_t, NULL);
 consvar_t cv_glallowshaders = CVAR_INIT ("gr_allowclientshaders", "On", CV_NETVAR, CV_OnOff, NULL);
-consvar_t cv_fovchange = CVAR_INIT ("gr_fovchange", "Off", CV_SAVE, CV_OnOff, NULL);
+consvar_t cv_glframebuffer = CVAR_INIT ("gr_framebuffer", "On", CV_SAVE|CV_CALL, CV_OnOff, CV_glframebuffer_OnChange);
+consvar_t cv_glbatching = CVAR_INIT ("gr_batching", "On", 0, CV_OnOff, NULL);
 
 #ifdef ALAM_LIGHTING
 consvar_t cv_gldynamiclighting = CVAR_INIT ("gr_dynamiclighting", "On", CV_SAVE, CV_OnOff, NULL);
@@ -6278,8 +6268,13 @@ consvar_t cv_glfiltermode = CVAR_INIT ("gr_filtermode", "Nearest", CV_SAVE|CV_CA
 consvar_t cv_glanisotropicmode = CVAR_INIT ("gr_anisotropicmode", "1", CV_CALL, glanisotropicmode_cons_t, CV_glanisotropic_OnChange);
 
 consvar_t cv_glsolvetjoin = CVAR_INIT ("gr_solvetjoin", "On", 0, CV_OnOff, NULL);
+consvar_t cv_fovchange = CVAR_INIT ("gr_fovchange", "Off", CV_SAVE, CV_OnOff, NULL);
 
-consvar_t cv_glbatching = CVAR_INIT ("gr_batching", "On", 0, CV_OnOff, NULL);
+static void CV_glframebuffer_OnChange(void)
+{
+	if (rendermode == render_opengl)
+		GPU->SetState(GPU_STATE_FRAMEBUFFER, cv_glframebuffer.value);
+}
 
 static void CV_glfiltermode_OnChange(void)
 {
@@ -6296,33 +6291,32 @@ static void CV_glanisotropic_OnChange(void)
 //added by Hurdler: console varibale that are saved
 void HWR_AddCommands(void)
 {
+	CV_RegisterVar(&cv_glshaders);
+	CV_RegisterVar(&cv_glallowshaders);
+	CV_RegisterVar(&cv_glframebuffer);
+	CV_RegisterVar(&cv_glfiltermode);
+	CV_RegisterVar(&cv_glbatching);
+	CV_RegisterVar(&cv_glsolvetjoin);
+
+	CV_RegisterVar(&cv_glskydome);
+	CV_RegisterVar(&cv_glspritebillboarding);
+	CV_RegisterVar(&cv_glfakecontrast);
+	CV_RegisterVar(&cv_glshearing);
 	CV_RegisterVar(&cv_fovchange);
+
+	CV_RegisterVar(&cv_glmodellighting);
+	CV_RegisterVar(&cv_glmodelinterpolation);
+	CV_RegisterVar(&cv_glmodels);
+
+#ifndef NEWCLIP
+	CV_RegisterVar(&cv_glclipwalls);
+#endif
 
 #ifdef ALAM_LIGHTING
 	CV_RegisterVar(&cv_glstaticlighting);
 	CV_RegisterVar(&cv_gldynamiclighting);
 	CV_RegisterVar(&cv_glcoronasize);
 	CV_RegisterVar(&cv_glcoronas);
-#endif
-
-	CV_RegisterVar(&cv_glmodellighting);
-	CV_RegisterVar(&cv_glmodelinterpolation);
-	CV_RegisterVar(&cv_glmodels);
-
-	CV_RegisterVar(&cv_glskydome);
-	CV_RegisterVar(&cv_glspritebillboarding);
-	CV_RegisterVar(&cv_glfakecontrast);
-	CV_RegisterVar(&cv_glshearing);
-	CV_RegisterVar(&cv_glshaders);
-	CV_RegisterVar(&cv_glallowshaders);
-
-	CV_RegisterVar(&cv_glfiltermode);
-	CV_RegisterVar(&cv_glsolvetjoin);
-
-	CV_RegisterVar(&cv_glbatching);
-
-#ifndef NEWCLIP
-	CV_RegisterVar(&cv_glclipwalls);
 #endif
 }
 
@@ -6636,16 +6630,6 @@ void HWR_DoTintedWipe(UINT8 wipenum, UINT8 scrnnum)
 	// It does the same thing
 	HWR_DoWipe(wipenum, scrnnum);
 #endif
-}
-
-void HWR_MakeScreenFinalTexture(void)
-{
-    GPU->MakeScreenFinalTexture();
-}
-
-void HWR_DrawScreenFinalTexture(int width, int height)
-{
-    GPU->DrawScreenFinalTexture(width, height);
 }
 
 // jimita 18032019

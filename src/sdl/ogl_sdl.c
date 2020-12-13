@@ -181,26 +181,30 @@ boolean OglSdlSurface(INT32 w, INT32 h)
 */
 void OglSdlFinishUpdate(boolean waitvbl)
 {
-	static boolean oldwaitvbl = false;
 	int sdlw, sdlh;
-	if (oldwaitvbl != waitvbl)
-	{
-		SDL_GL_SetSwapInterval(waitvbl ? 1 : 0);
-	}
 
+	static boolean oldwaitvbl = false;
+	if (oldwaitvbl != waitvbl)
+		SDL_GL_SetSwapInterval(waitvbl ? 1 : 0);
 	oldwaitvbl = waitvbl;
 
 	SDL_GetWindowSize(window, &sdlw, &sdlh);
+	GPU->MakeScreenFinalTexture();
 
-	HWR_MakeScreenFinalTexture();
-	HWR_DrawScreenFinalTexture(sdlw, sdlh);
+	GLFramebuffer_Disable();
+	RenderToFramebuffer = FrameBufferEnabled;
+
+	GPU->DrawFinalScreenTexture(sdlw, sdlh);
+
+	if (RenderToFramebuffer)
+		GLFramebuffer_Enable();
+
 	SDL_GL_SwapWindow(window);
-
 	GPU->GClipRect(0, 0, realwidth, realheight, NZCLIP_PLANE);
 
 	// Sryder:	We need to draw the final screen texture again into the other buffer in the original position so that
 	//			effects that want to take the old screen can do so after this
-	HWR_DrawScreenFinalTexture(realwidth, realheight);
+	GPU->DrawFinalScreenTexture(realwidth, realheight);
 }
 
 #endif //HWRENDER

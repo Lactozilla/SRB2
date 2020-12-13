@@ -52,15 +52,9 @@ boolean GLBackend_LoadFunctions(void)
 
 boolean GLBackend_LoadContextFunctions(void)
 {
-	GETOPENGLFUNC(ActiveTexture)
-	GETOPENGLFUNC(ClientActiveTexture)
+	GLExtension_LoadFunctions();
 
-	GETOPENGLFUNC(GenBuffers)
-	GETOPENGLFUNC(BindBuffer)
-	GETOPENGLFUNC(BufferData)
-	GETOPENGLFUNC(DeleteBuffers)
-
-	GETOPENGLFUNC(BlendEquation)
+	GETOPENGLFUNCTRY(BlendEquation)
 
 	if (GLTexture_InitMipmapping())
 		MipmappingSupported = GL_TRUE;
@@ -130,8 +124,6 @@ static void SetInitialStates(void)
 	pglEnable(GL_ALPHA_TEST);
 	pglAlphaFunc(GL_NOTEQUAL, 0.0f);
 
-	pglEnable(GL_DEPTH_TEST);	// check the depth buffer
-	pglDepthMask(GL_TRUE);		// enable writing to depth buffer
 	GPU->SetDepthBuffer();
 
 	// Hurdler: not necessary, is it?
@@ -161,13 +153,6 @@ static void SetInitialStates(void)
 // -----------------+
 static void SetModelView(INT32 w, INT32 h)
 {
-	// The screen textures need to be flushed if the width or height change so that they be remade for the correct size
-	if (GPUScreenWidth != w || GPUScreenHeight != h)
-		GPU->FlushScreenTextures();
-
-	GPUScreenWidth = (GLint)w;
-	GPUScreenHeight = (GLint)h;
-
 	pglViewport(0, 0, w, h);
 
 	pglMatrixMode(GL_PROJECTION);
@@ -490,6 +475,10 @@ static void SetState(INT32 State, INT32 Value)
 {
 	switch (State)
 	{
+		case GPU_STATE_FRAMEBUFFER:
+			FrameBufferEnabled = Value ? GL_TRUE : GL_FALSE;
+			break;
+
 		case GPU_STATE_MODEL_LIGHTING:
 			ModelLightingEnabled = Value ? GL_TRUE : GL_FALSE;
 			break;
@@ -904,9 +893,9 @@ static void PostImgRedraw(float points[GPU_POSTIMGVERTS][GPU_POSTIMGVERTS][2])
 	};
 
 	// Use a power of two texture, dammit
-	if(GPUScreenWidth <= 1024)
+	if (GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if(GPUScreenWidth <= 512)
+	if (GPUScreenWidth <= 512)
 		texsize = 512;
 
 	// X/Y stretch fix for all resolutions(!)
@@ -1009,9 +998,9 @@ static void DrawIntermissionBG(void)
 
 	float fix[8];
 
-	if(GPUScreenWidth <= 1024)
+	if (GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if(GPUScreenWidth <= 512)
+	if (GPUScreenWidth <= 512)
 		texsize = 512;
 
 	xfix = 1/((float)(texsize)/((float)((GPUScreenWidth))));
@@ -1068,9 +1057,9 @@ static void DoScreenWipe(void)
 	};
 
 	// Use a power of two texture, dammit
-	if(GPUScreenWidth <= 1024)
+	if (GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if(GPUScreenWidth <= 512)
+	if (GPUScreenWidth <= 512)
 		texsize = 512;
 
 	xfix = 1/((float)(texsize)/((float)((GPUScreenWidth))));
@@ -1143,7 +1132,7 @@ static void MakeScreenFinalTexture(void)
 	GLTexture_GenerateScreenTexture(&FinalScreenTexture);
 }
 
-static void DrawScreenFinalTexture(int width, int height)
+static void DrawFinalScreenTexture(INT32 width, INT32 height)
 {
 	float xfix, yfix;
 	float origaspect, newaspect;
@@ -1154,9 +1143,9 @@ static void DrawScreenFinalTexture(int width, int height)
 	float off[12];
 	float fix[8];
 
-	if(GPUScreenWidth <= 1024)
+	if (GPUScreenWidth <= 1024)
 		texsize = 1024;
-	if(GPUScreenWidth <= 512)
+	if (GPUScreenWidth <= 512)
 		texsize = 512;
 
 	xfix = 1/((float)(texsize)/((float)((GPUScreenWidth))));
@@ -1281,7 +1270,7 @@ struct GPURenderingAPI GLInterfaceAPI = {
 	DoScreenWipe,
 	NULL,
 	DrawIntermissionBG,
-	DrawScreenFinalTexture,
+	DrawFinalScreenTexture,
 
 	PostImgRedraw,
 

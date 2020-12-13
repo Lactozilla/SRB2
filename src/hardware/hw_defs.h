@@ -182,9 +182,10 @@ typedef struct FSurfaceInfo FSurfaceInfo;
 // Hurdler: added for backward compatibility
 enum EGPUState
 {
+	GPU_STATE_FRAMEBUFFER,
+	GPU_STATE_SHADERS,
 	GPU_STATE_TEXTUREFILTERMODE,
 	GPU_STATE_TEXTUREANISOTROPICMODE,
-	GPU_STATE_SHADERS,
 	GPU_STATE_MODEL_LIGHTING
 };
 

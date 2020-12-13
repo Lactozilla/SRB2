@@ -61,8 +61,6 @@ void HWR_EndScreenWipe(void);
 void HWR_DrawIntermissionBG(void);
 void HWR_DoWipe(UINT8 wipenum, UINT8 scrnnum);
 void HWR_DoTintedWipe(UINT8 wipenum, UINT8 scrnnum);
-void HWR_MakeScreenFinalTexture(void);
-void HWR_DrawScreenFinalTexture(int width, int height);
 
 // This stuff is put here so models can use them
 void HWR_Lighting(FSurfaceInfo *Surface, INT32 light_level, extracolormap_t *colormap);
@@ -94,6 +92,7 @@ extern consvar_t cv_glshaders, cv_glallowshaders;
 extern consvar_t cv_glmodels;
 extern consvar_t cv_glmodelinterpolation;
 extern consvar_t cv_glmodellighting;
+extern consvar_t cv_glframebuffer;
 extern consvar_t cv_glfiltermode;
 extern consvar_t cv_glanisotropicmode;
 extern consvar_t cv_fovchange;

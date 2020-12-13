@@ -57,7 +57,7 @@ struct GPURenderingAPI
 	void (*DoScreenWipe) (void);
 	void (*DoTintedWipe) (boolean istowhite, boolean isfadingin);
 	void (*DrawIntermissionBG) (void);
-	void (*DrawScreenFinalTexture) (int width, int height);
+	void (*DrawFinalScreenTexture) (INT32 width, INT32 height);
 
 	void (*PostImgRedraw) (float points[GPU_POSTIMGVERTS][GPU_POSTIMGVERTS][2]);
 
