@@ -1083,6 +1083,9 @@ void GLTexture_Update(HWRTexture_t *pTexInfo)
 #ifdef HAVE_GLES
 	GLTexture_UploadData(pTexInfo, pTextureBuffer, GPUTextureFormat, update);
 #else
+	if (GLTexture_CanGenerateMipmaps(pTexInfo) && !pglGenerateMipmap)
+		pglTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
+
 	if (pTexInfo->format == GPU_TEXFMT_ALPHA_INTENSITY_88)
 		GLTexture_UploadData(pTexInfo, pTextureBuffer, GL_LUMINANCE_ALPHA, update);
 	else if (pTexInfo->format == GPU_TEXFMT_ALPHA_8)
@@ -1111,18 +1114,10 @@ void GLTexture_Update(HWRTexture_t *pTexInfo)
 // Uploads texture data.
 void GLTexture_UploadData(HWRTexture_t *pTexInfo, const GLvoid *pTextureBuffer, GLenum format, boolean update)
 {
-	INT32 w = pTexInfo->width;
-	INT32 h = pTexInfo->height;
-
-#ifndef HAVE_GLES
-	if (GLTexture_CanGenerateMipmaps(pTexInfo) && !pglGenerateMipmap)
-		pglTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
-#endif
-
 	if (update)
-		pglTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pTextureBuffer);
+		pglTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pTexInfo->width, pTexInfo->height, GL_RGBA, GL_UNSIGNED_BYTE, pTextureBuffer);
 	else
-		pglTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pTextureBuffer);
+		pglTexImage2D(GL_TEXTURE_2D, 0, format, pTexInfo->width, pTexInfo->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pTextureBuffer);
 }
 
 // Writes a palettized texture.
