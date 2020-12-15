@@ -76,7 +76,8 @@
 #endif
 
 #ifdef HWRENDER
-#include "hardware/hw_main.h" // 3D View Rendering
+#include "hardware/hw_main.h"
+#include "hardware/hw_shaders.h"
 #endif
 
 #ifdef _WINDOWS
@@ -1285,6 +1286,15 @@ void D_SRB2Main(void)
 	CONS_Printf("W_InitMultipleFiles(): Adding extra PWADs.\n");
 	W_InitMultipleFiles(startuppwads);
 	D_CleanFile(startuppwads);
+
+#if defined(HWRENDER) && defined(GL_SHADERS)
+	// Lactozilla: Recompile shaders after adding extra PWADs.
+	if (vid.glstate == VID_GL_LIBRARY_LOADED)
+	{
+		HWR_LoadAllShaders();
+		gl_shadersavailable = HWR_CompileShaders();
+	}
+#endif
 
 	CONS_Printf("HU_LoadGraphics()...\n");
 	HU_LoadGraphics();

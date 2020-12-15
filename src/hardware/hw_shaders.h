@@ -19,7 +19,7 @@
 
 #define SHADER_INCLUDES_SOFTWARE "SoftwareShaderIncludes"
 
-void HWR_LoadShaders(void);
+void HWR_LoadAllShaders(void);
 void HWR_ReadShaderDefinitions(UINT16 wadnum, UINT16 numlumps);
 
 boolean HWR_CompileShaders(void);

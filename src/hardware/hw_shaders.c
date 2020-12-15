@@ -194,15 +194,15 @@ const char *HWR_GetShaderName(INT32 shader)
 	return "Unknown";
 }
 
-void HWR_LoadShaders(void)
+void HWR_LoadAllShaders(void)
 {
 	INT32 i;
 
 	for (i = 0; i < numwadfiles; i++)
-	{
-		HWR_ReadShaderDefinitions(i, wadfiles[i]->numlumps);
 		HWR_LoadLegacyShadersFromFile(i, (wadfiles[i]->type == RET_PK3));
-	}
+
+	for (i = 0; i < numwadfiles; i++)
+		HWR_ReadShaderDefinitions(i, wadfiles[i]->numlumps);
 }
 
 void HWR_WriteShaderSource(char **dest, UINT8 stage, FShaderProgram *program, char *code, size_t size)
@@ -309,7 +309,7 @@ static char **includesList = NULL;
 static UINT8 *includesStages = NULL;
 static INT32 includesCount = 0;
 
-static void InsertIntoIncludesList(const char *include, INT32 stage)
+static void CollectInclude(const char *include, INT32 stage)
 {
 	includesCount++;
 	includesList = Z_Realloc(includesList, includesCount * sizeof(char *), PU_STATIC, NULL);
@@ -318,10 +318,49 @@ static void InsertIntoIncludesList(const char *include, INT32 stage)
 	includesStages[includesCount - 1] = stage;
 }
 
+static void InsertInclude(FShaderIncludes *includes, INT32 ref)
+{
+	includes->list = Z_Realloc(includes->list, (includes->count + 1) * sizeof(char *), PU_STATIC, NULL);
+	includes->stages = Z_Realloc(includes->stages, (includes->count + 1) * sizeof(UINT8), PU_STATIC, NULL);
+	includes->list[includes->count] = includesList[ref];
+	includes->stages[includes->count] = includesStages[ref];
+	includes->count++;
+}
+
+static void RemoveInclude(FShaderIncludes *includes, INT32 index)
+{
+	Z_Free(includes->list[index]);
+
+	if ((includes->count - 1) > 0)
+	{
+		memmove(includes->list + index, includes->list + (index + 1), (includes->count - index) * sizeof(char *));
+		memmove(includes->stages + index, includes->stages + (index + 1), (includes->count - index) * sizeof(UINT8));
+	}
+
+	includes->count--;
+
+	if (includes->count)
+	{
+		includes->list = Z_Realloc(includes->list, includes->count * sizeof(char *), PU_STATIC, NULL);
+		includes->stages = Z_Realloc(includes->stages, includes->count * sizeof(UINT8), PU_STATIC, NULL);
+	}
+	else
+	{
+		Z_Free(includes->list);
+		Z_Free(includes->stages);
+
+		includes->list = NULL;
+		includes->stages = NULL;
+	}
+}
+
 static boolean ParseShaderDefinitions(size_t lumplength, boolean mainfile)
 {
 	FShaderProgram *shader = NULL;
-	boolean builtin = false, isInclude = false, replace = false, removesoftwareshaders = false;
+	boolean builtin = false, replace = false;
+	boolean isInclude = false, removeSWIncludes = false;
+	UINT8 *clearIncludes = NULL;
+	INT32 numClearIncludes = 0;
 	char *sources[NUMSHADERSTAGES - 1];
 	INT32 id, type = 0;
 
@@ -584,7 +623,7 @@ static boolean ParseShaderDefinitions(size_t lumplength, boolean mainfile)
 
 						if (src)
 						{
-							InsertIntoIncludesList(inc, stage);
+							CollectInclude(inc, stage);
 							addedSources++;
 						}
 						else if (numSources == 1)
@@ -611,16 +650,53 @@ static boolean ParseShaderDefinitions(size_t lumplength, boolean mainfile)
 					goto failure;
 				}
 			}
+			else if (!stricmp(tk, "ClearIncludes"))
+			{
+				INT32 idx = numClearIncludes;
+				UINT8 stage = SHADER_STAGE_NONE;
+
+				Z_Free(tk);
+				tk = M_GetToken(NULL);
+				if (tk == NULL)
+				{
+					ParseError("EOF where include clear stage for shader \"%s\" should be", name);
+					goto failure;
+				}
+
+				numClearIncludes++;
+				clearIncludes = Z_Realloc(clearIncludes, numClearIncludes * sizeof(UINT8), PU_STATIC, NULL);
+
+				if (!stricmp(tk, "Vertex"))
+					stage = SHADER_STAGE_VERTEX;
+				else if (!stricmp(tk, "Fragment"))
+					stage = SHADER_STAGE_FRAGMENT;
+				else
+					M_UnGetToken();
+
+				if (stage == SHADER_STAGE_NONE) // Clear all
+				{
+					INT32 i = (SHADER_STAGE_NONE + 1);
+					for (; i < NUMSHADERSTAGES; i++)
+					{
+						idx = numClearIncludes;
+						numClearIncludes++;
+						clearIncludes = Z_Realloc(clearIncludes, numClearIncludes * sizeof(UINT8), PU_STATIC, NULL);
+						clearIncludes[idx] = i;
+					}
+				}
+				else
+					clearIncludes[idx] = stage;
+			}
 			else if (!stricmp(tk, "IncludeSoftwareShaders"))
 			{
 				Z_Free(tk);
-				InsertIntoIncludesList(SHADER_INCLUDES_SOFTWARE, SHADER_STAGE_FRAGMENT);
-				removesoftwareshaders = false;
+				CollectInclude(SHADER_INCLUDES_SOFTWARE, SHADER_STAGE_FRAGMENT);
+				removeSWIncludes = false;
 			}
 			else if (!stricmp(tk, "RemoveSoftwareShaders"))
 			{
 				Z_Free(tk);
-				removesoftwareshaders = true;
+				removeSWIncludes = true;
 			}
 			else
 			{
@@ -711,25 +787,42 @@ static boolean ParseShaderDefinitions(size_t lumplength, boolean mainfile)
 		M_Memcpy(shader->name, name, len);
 	}
 
-	if (includesCount)
+	if (clearIncludes)
 	{
-		INT32 i = 0, j, count = includesCount;
+		INT32 i = 0, j;
 
-		for (; i < count; i++)
+		for (; i < numClearIncludes; i++)
 		{
-			j = shader->includes.count;
-			shader->includes.list = Z_Realloc(shader->includes.list, (j + 1) * sizeof(char *), PU_STATIC, NULL);
-			shader->includes.stages = Z_Realloc(shader->includes.stages, (j + 1) * sizeof(UINT8), PU_STATIC, NULL);
-			shader->includes.list[j] = includesList[i];
-			shader->includes.stages[j] = includesStages[i];
-			shader->includes.count++;
+			FShaderIncludes *inc = &shader->includes;
+
+			for (j = 0; j < inc->count; j++)
+			{
+				INT32 count = inc->count;
+
+				if (clearIncludes[i] == inc->stages[j])
+				{
+					RemoveInclude(inc, j);
+
+					count--;
+					j--;
+
+					if (!count)
+					{
+						inc = NULL;
+						break;
+					}
+				}
+			}
+
+			if (inc == NULL)
+				break;
 		}
 
-		Z_Free(includesList);
-		Z_Free(includesStages);
+		removeSWIncludes = false;
+		Z_Free(clearIncludes);
 	}
 
-	if (removesoftwareshaders)
+	if (removeSWIncludes)
 	{
 		INT32 i = 0, count = shader->includes.count;
 
@@ -737,13 +830,33 @@ static boolean ParseShaderDefinitions(size_t lumplength, boolean mainfile)
 		{
 			if (!stricmp(SHADER_INCLUDES_SOFTWARE, shader->includes.list[i]))
 			{
-				memmove(shader->includes.list + i, shader->includes.list + (i + 1), (shader->includes.count - i) * sizeof(char *));
-				memmove(shader->includes.stages + i, shader->includes.stages + (i + 1), (shader->includes.count - i) * sizeof(UINT8));
-				shader->includes.count--;
-				shader->includes.list = Z_Realloc(shader->includes.list, shader->includes.count * sizeof(char *), PU_STATIC, NULL);
-				shader->includes.stages = Z_Realloc(shader->includes.stages, shader->includes.count * sizeof(UINT8), PU_STATIC, NULL);
+				RemoveInclude(&shader->includes, i);
+				i--;
 			}
 		}
+	}
+
+	if (includesCount)
+	{
+		INT32 i = 0, j, count = includesCount;
+
+		for (; i < count; i++)
+		{
+			for (j = 0; j < shader->includes.count; j++)
+			{
+				if (!stricmp(shader->includes.list[j], includesList[i])
+				&& (shader->includes.stages[j] == includesStages[i]))
+				{
+					RemoveInclude(&shader->includes, j);
+					break;
+				}
+			}
+
+			InsertInclude(&shader->includes, i);
+		}
+
+		Z_Free(includesList);
+		Z_Free(includesStages);
 	}
 
 	if (sources[SHADER_STAGE_VERTEX - 1])

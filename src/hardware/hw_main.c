@@ -6339,17 +6339,22 @@ void HWR_Startup(void)
 	{
 		CONS_Printf("HWR_Startup()...\n");
 
-		HWR_InitPolyPool();
 		HWR_AddSessionCommands();
+
+		HWR_InitPolyPool();
 		HWR_InitMapTextures();
 		HWR_InitModels();
 #ifdef ALAM_LIGHTING
 		HWR_InitLight();
 #endif
 
-		HWR_LoadShaders();
+#ifdef GL_SHADERS
+		HWR_LoadAllShaders();
 		if (!HWR_CompileShaders())
 			gl_shadersavailable = false;
+#else
+		gl_shadersavailable = false;
+#endif
 	}
 
 	gl_patchformat = gl_textureformat = GPU_TEXFMT_RGBA;
