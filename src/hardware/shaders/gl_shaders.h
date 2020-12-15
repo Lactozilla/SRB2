@@ -127,7 +127,8 @@ void Shader_SetProgramIfChanged(void);
 void Shader_SetTransform(void);
 #endif
 
-void Shader_LoadCustom(int number, char *code, size_t size, boolean isfragment);
+void Shader_StoreSource(FShaderProgram *program, UINT32 number, char *code, size_t size, UINT8 stage);
+void Shader_StoreCustomSource(FShaderProgram *program, UINT32 number, char *code, size_t size, UINT8 stage);
 
 boolean Shader_Compile(void);
 void Shader_Clean(void);

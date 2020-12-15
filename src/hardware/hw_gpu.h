@@ -67,7 +67,8 @@ struct GPURenderingAPI
 	void (*UnSetShader) (void);
 
 	void (*SetShaderInfo) (INT32 info, INT32 value);
-	void (*LoadCustomShader) (int number, char *code, size_t size, boolean isfragment);
+	void (*StoreShader) (FShaderProgram *program, UINT32 number, char *code, size_t size, UINT8 stage);
+	void (*StoreCustomShader) (FShaderProgram *program, UINT32 number, char *code, size_t size, UINT8 stage);
 };
 
 extern struct GPURenderingAPI *GPU;

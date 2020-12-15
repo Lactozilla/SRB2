@@ -512,6 +512,7 @@ if(${SRB2_CONFIG_HWRENDER})
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_md2load.c
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_md3load.c
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_model.c
+		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_shaders.c
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/u_list.c
 	)
 
@@ -529,6 +530,7 @@ if(${SRB2_CONFIG_HWRENDER})
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_md2load.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_md3load.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_model.h
+		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_shaders.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/u_list.h
 	)
 

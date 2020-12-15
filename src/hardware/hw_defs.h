@@ -229,19 +229,26 @@ enum EShaderType
 	SHADER_SKY,
 	SHADER_LEVEL_LAST = SHADER_SKY,
 
-#ifdef HAVE_GLES2
 	SHADER_FADEMASK,
 	SHADER_FADEMASK_ADDITIVEANDSUBTRACTIVE,
-#endif
+	SHADER_BUILTIN_LAST = SHADER_FADEMASK_ADDITIVEANDSUBTRACTIVE,
 
 	NUMBASESHADERS,
 };
 
-#ifdef GL_SHADERS
+enum EShaderStage
+{
+	SHADER_STAGE_NONE,
+
+	SHADER_STAGE_VERTEX,
+	SHADER_STAGE_FRAGMENT,
+
+	NUMSHADERSTAGES
+};
 
 // Maximum amount of shader programs
 // Must be higher than NUMBASESHADERS
-#define HWR_MAXSHADERS 16
+#define HWR_MAXSHADERS 2048
 
 // Shader sources (vertex and fragment)
 struct FShaderSource
@@ -251,15 +258,36 @@ struct FShaderSource
 };
 typedef struct FShaderSource FShaderSource;
 
-#endif
+// Shader includes list
+struct FShaderIncludes
+{
+	char **list;
+	UINT8 *stages;
+	INT32 count;
+};
+typedef struct FShaderIncludes FShaderIncludes;
 
-// Custom shader reference table
-struct FShaderReferenceArray
+// Shader struct
+struct FShaderProgram
+{
+	char *name;
+	INT32 type;
+
+	boolean valid;
+	boolean builtin, isInclude;
+
+	FShaderSource source;
+	FShaderIncludes includes;
+};
+typedef struct FShaderProgram FShaderProgram;
+
+// Built-in shader list
+struct FShaderBuiltInList
 {
 	const char *type;
 	INT32 id;
 };
-typedef struct FShaderReferenceArray FShaderReferenceArray;
+typedef struct FShaderBuiltInList FShaderBuiltInList;
 
 struct FSkyVertex
 {

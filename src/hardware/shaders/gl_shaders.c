@@ -80,6 +80,8 @@ static PFNglGetAttribLocation pglGetAttribLocation;
 
 FShaderObject ShaderObjects[HWR_MAXSHADERS];
 FShaderObject UserShaderObjects[HWR_MAXSHADERS];
+
+FShaderSource ShaderSources[HWR_MAXSHADERS];
 FShaderSource CustomShaders[HWR_MAXSHADERS];
 
 FShaderState ShaderState;
@@ -88,56 +90,6 @@ static GLRGBAFloat ShaderDefaultColor = {1.0f, 1.0f, 1.0f, 1.0f};
 
 // Shader info
 static INT32 ShaderLevelTime = 0;
-
-#ifdef HAVE_GLES2
-#include "shaders_gles2.h"
-#else
-#include "shaders_gl2.h"
-#endif
-
-// ================
-//  Shader sources
-// ================
-
-static struct {
-	const char *vertex;
-	const char *fragment;
-} const ShaderSources[] = {
-	// Default shader
-	{GLSL_DEFAULT_VERTEX_SHADER, GLSL_DEFAULT_FRAGMENT_SHADER},
-
-	// Floor shader
-	{GLSL_DEFAULT_VERTEX_SHADER, GLSL_SOFTWARE_FRAGMENT_SHADER},
-
-	// Wall shader
-	{GLSL_DEFAULT_VERTEX_SHADER, GLSL_SOFTWARE_FRAGMENT_SHADER},
-
-	// Sprite shader
-	{GLSL_DEFAULT_VERTEX_SHADER, GLSL_SOFTWARE_FRAGMENT_SHADER},
-
-	// Model shader
-	{GLSL_DEFAULT_VERTEX_SHADER, GLSL_SOFTWARE_FRAGMENT_SHADER},
-
-	// Model shader + diffuse lighting from above
-	{GLSL_MODEL_LIGHTING_VERTEX_SHADER, GLSL_SOFTWARE_MODEL_LIGHTING_FRAGMENT_SHADER},
-
-	// Water shader
-	{GLSL_DEFAULT_VERTEX_SHADER, GLSL_WATER_FRAGMENT_SHADER},
-
-	// Fog shader
-	{GLSL_DEFAULT_VERTEX_SHADER, GLSL_FOG_FRAGMENT_SHADER},
-
-	// Sky shader
-	{GLSL_DEFAULT_VERTEX_SHADER, GLSL_SKY_FRAGMENT_SHADER},
-
-#ifdef HAVE_GLES2
-	// Fade mask shaders
-	{GLSL_FADEMASK_VERTEX_SHADER, GLSL_FADEMASK_FRAGMENT_SHADER},
-	{GLSL_FADEMASK_VERTEX_SHADER, GLSL_FADEMASK_ADDITIVEANDSUBTRACTIVE_FRAGMENT_SHADER},
-#endif
-
-	{NULL, NULL},
-};
 
 void Shader_LoadFunctions(void)
 {
@@ -212,34 +164,124 @@ void Shader_SetInfo(INT32 info, INT32 value)
 }
 
 //
-// Custom shader loading
+// Shader source loading
 //
-void Shader_LoadCustom(int number, char *code, size_t size, boolean isfragment)
+static void WriteShaderSource(char **dest, UINT8 stage, FShaderProgram *program, char *code, size_t size)
+{
+	size_t len = size, offs = 0, totaloffs = 0;
+	size_t *offsList = NULL;
+	char **includesList = NULL;
+	INT32 numIncludes = 0;
+
+	if (*dest)
+		free(*dest);
+
+	if (program && program->includes.count)
+	{
+		FShaderIncludes *includes = &program->includes;
+		INT32 i = 0;
+
+		for (; i < includes->count; i++)
+		{
+			FShaderProgram *builtin = NULL;
+
+			if (!stricmp(includes->list[i], SHADER_INCLUDES_SOFTWARE) && program->builtin)
+				builtin = HWR_FindFirstShaderProgram(SHADER_INCLUDES_SOFTWARE, NULL);
+			else
+				builtin = HWR_FindLastShaderProgram(includes->list[i], NULL);
+
+			if (builtin)
+			{
+				char *src = NULL;
+
+				if (stage == SHADER_STAGE_VERTEX && includes->stages[i] == SHADER_STAGE_VERTEX)
+					src = builtin->source.vertex;
+				else if (stage == SHADER_STAGE_FRAGMENT && includes->stages[i] == SHADER_STAGE_FRAGMENT)
+					src = builtin->source.fragment;
+
+				if (src)
+				{
+					numIncludes++;
+
+					offsList = Z_Realloc(offsList, numIncludes * sizeof(size_t), PU_STATIC, NULL);
+					includesList = Z_Realloc(includesList, numIncludes * sizeof(char *), PU_STATIC, NULL);
+
+					offs = (strlen(src) + 1);
+					offsList[numIncludes - 1] = totaloffs;
+
+					if (builtin->includes.count) // Recursive inclusion
+					{
+						char **buf = &includesList[numIncludes - 1];
+						(*buf) = NULL;
+						WriteShaderSource(buf, stage, builtin, src, offs - 1);
+						offs = (strlen((*buf)) + 1);
+					}
+					else
+						includesList[numIncludes - 1] = src;
+
+					totaloffs += offs;
+					len += offs;
+				}
+			}
+		}
+	}
+
+	*dest = malloc(len + 1);
+
+	if (numIncludes)
+	{
+		char *buf;
+		INT32 i = 0;
+
+		for (; i < numIncludes; i++)
+		{
+			offs = offsList[i];
+			buf = (*dest) + offs;
+
+			strncpy(buf, includesList[i], strlen(includesList[i]));
+			buf[strlen(includesList[i])] = '\n';
+		}
+	}
+
+	strncpy((*dest) + totaloffs, code, size);
+	(*dest)[len] = 0;
+
+	if (offsList)
+		Z_Free(offsList);
+	if (includesList)
+		Z_Free(includesList);
+}
+
+static void StoreShaderSource(FShaderProgram *program, FShaderSource *list, int number, char *code, size_t size, UINT8 stage)
 {
 	FShaderSource *shader;
 
 	if (!GLExtension_shaders)
 		return;
 
-	if (number < 1 || number > HWR_MAXSHADERS)
-		I_Error("Shader_LoadCustom: cannot load shader %d (min 1, max %d)", number, HWR_MAXSHADERS);
+	if (number > HWR_MAXSHADERS)
+		I_Error("StoreShaderSource: cannot load shader %d (min 0, max %d)", number, HWR_MAXSHADERS);
 	else if (code == NULL)
-		I_Error("Shader_LoadCustom: empty shader");
+		I_Error("StoreShaderSource: empty shader source");
 
-	shader = &CustomShaders[number];
+	shader = &list[number];
 
-#define COPYSHADER(source) { \
-	if (shader->source) \
-		free(shader->source); \
-	shader->source = malloc(size+1); \
-	strncpy(shader->source, code, size); \
-	shader->source[size] = 0; \
-	}
+	if (stage == SHADER_STAGE_VERTEX)
+		WriteShaderSource(&shader->vertex, stage, program, code, size);
+	else if (stage == SHADER_STAGE_FRAGMENT)
+		WriteShaderSource(&shader->fragment, stage, program, code, size);
+}
 
-	if (isfragment)
-		COPYSHADER(fragment)
-	else
-		COPYSHADER(vertex)
+void Shader_StoreSource(FShaderProgram *program, UINT32 number, char *code, size_t size, UINT8 stage)
+{
+	StoreShaderSource(program, ShaderSources, number, code, size, stage);
+}
+
+void Shader_StoreCustomSource(FShaderProgram *program, UINT32 number, char *code, size_t size, UINT8 stage)
+{
+	if (number < 1)
+		I_Error("Shader_StoreCustomSource: cannot load shader %d (min 1, max %d)", number, HWR_MAXSHADERS);
+	StoreShaderSource(program, CustomShaders, number, code, size, stage);
 }
 
 void Shader_Set(int type)
@@ -466,7 +508,7 @@ static boolean Shader_CompileProgram(FShaderObject *shader, GLint i, const GLcha
 
 boolean Shader_Compile(void)
 {
-	GLint i;
+	GLint i = 0;
 
 	if (!GLExtension_shaders)
 		return false;
@@ -474,14 +516,19 @@ boolean Shader_Compile(void)
 	CustomShaders[SHADER_DEFAULT].vertex = NULL;
 	CustomShaders[SHADER_DEFAULT].fragment = NULL;
 
-	for (i = 0; ShaderSources[i].vertex && ShaderSources[i].fragment; i++)
+	for (; i < HWR_MAXSHADERS; i++)
 	{
 		FShaderObject *shader, *usershader;
 		const GLchar *vert_shader = ShaderSources[i].vertex;
 		const GLchar *frag_shader = ShaderSources[i].fragment;
 
-		if (i >= HWR_MAXSHADERS)
-			break;
+		if (!(ShaderSources[i].vertex && ShaderSources[i].fragment))
+			continue;
+
+#ifndef HAVE_GLES2
+		if (i == SHADER_FADEMASK || i == SHADER_FADEMASK_ADDITIVEANDSUBTRACTIVE)
+			continue;
+#endif
 
 		shader = &ShaderObjects[i];
 		usershader = &UserShaderObjects[i];
@@ -498,7 +545,7 @@ boolean Shader_Compile(void)
 			shader->program = 0;
 
 		// Compile custom shader
-		if ((i == SHADER_DEFAULT) || !(CustomShaders[i].vertex || CustomShaders[i].fragment))
+		if ((i == SHADER_DEFAULT) || (CustomShaders[i].vertex == NULL && CustomShaders[i].fragment == NULL))
 			continue;
 
 		// 18032019

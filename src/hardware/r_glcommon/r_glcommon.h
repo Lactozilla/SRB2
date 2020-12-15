@@ -43,10 +43,13 @@
 #include "../../doomtype.h"
 #include "../../doomdef.h"
 
-#include "../../hardware/hw_gpu.h"   // GPURenderingAPI
-#include "../../hardware/hw_data.h"  // HWRTexture_t
-#include "../../hardware/hw_defs.h"  // FTextureInfo
-#include "../../hardware/hw_model.h" // model_t / mesh_t / mdlframe_t
+#include "../../z_zone.h"
+
+#include "../../hardware/hw_gpu.h"     // GPURenderingAPI
+#include "../../hardware/hw_data.h"    // HWRTexture_t
+#include "../../hardware/hw_defs.h"    // FTextureInfo
+#include "../../hardware/hw_model.h"   // model_t / mesh_t / mdlframe_t
+#include "../../hardware/hw_shaders.h" // HWR_GetShaderName
 
 #include "../r_opengl/r_vbo.h"
 

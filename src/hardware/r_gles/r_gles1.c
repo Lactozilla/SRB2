@@ -1220,12 +1220,13 @@ static void SetShaderInfo(INT32 info, INT32 value)
 	(void)value;
 }
 
-static void LoadCustomShader(int number, char *shader, size_t size, boolean fragment)
+static void StoreShader(FShaderProgram *program, UINT32 number, char *shader, size_t size, UINT8 stage)
 {
+	(void)program;
 	(void)number;
 	(void)shader;
 	(void)size;
-	(void)fragment;
+	(void)stage;
 }
 
 static void UnSetShader(void) {}
@@ -1280,7 +1281,8 @@ struct GPURenderingAPI GLInterfaceAPI = {
 	UnSetShader,
 
 	SetShaderInfo,
-	LoadCustomShader,
+	StoreShader,
+	StoreShader,
 };
 
 #endif //HWRENDER

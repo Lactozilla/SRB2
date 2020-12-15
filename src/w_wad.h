@@ -124,6 +124,7 @@ typedef struct wadfile_s
 	UINT32 filesize; // for network
 	UINT8 md5sum[16];
 
+	boolean mainfile;
 	boolean important; // also network - !W_VerifyNMUSlumps
 } wadfile_t;
 

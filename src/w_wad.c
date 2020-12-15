@@ -71,6 +71,7 @@
 #ifdef HWRENDER
 #include "hardware/hw_main.h"
 #include "hardware/hw_glob.h"
+#include "hardware/hw_shaders.h"
 #endif
 
 #ifdef _DEBUG
@@ -832,6 +833,7 @@ UINT16 W_InitFile(const char *filename, boolean mainfile, boolean startup)
 	wadfile->handle = handle;
 	wadfile->numlumps = (UINT16)numlumps;
 	wadfile->lumpinfo = lumpinfo;
+	wadfile->mainfile = mainfile;
 	wadfile->important = important;
 	fseek(handle, 0, SEEK_END);
 	wadfile->filesize = (unsigned)ftell(handle);
@@ -855,12 +857,9 @@ UINT16 W_InitFile(const char *filename, boolean mainfile, boolean startup)
 
 #ifdef HWRENDER
 	// Read shaders from file
-	if (rendermode == render_opengl && (vid.glstate == VID_GL_LIBRARY_LOADED))
-	{
-		HWR_LoadCustomShadersFromFile(numwadfiles - 1, (type == RET_PK3));
-		HWR_CompileShaders();
-	}
-#endif // HWRENDER
+	if (vid.glstate == VID_GL_LIBRARY_LOADED)
+		HWR_LoadLegacyShadersFromFile(numwadfiles - 1, (type == RET_PK3));
+#endif
 
 	// TODO: HACK ALERT - Load Lua & SOC stuff right here. I feel like this should be out of this place, but... Let's stick with this for now.
 	switch (wadfile->type)

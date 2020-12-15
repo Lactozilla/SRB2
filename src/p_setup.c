@@ -77,6 +77,7 @@
 #include "hardware/hw_main.h"
 #include "hardware/hw_light.h"
 #include "hardware/hw_model.h"
+#include "hardware/hw_shaders.h"
 #endif
 
 #include "p_slopes.h"
@@ -4563,6 +4564,12 @@ boolean P_AddWadFile(const char *wadfilename)
 	R_LoadSpriteInfoLumps(wadnum, numlumps);
 
 #ifdef HWRENDER
+	if (vid.glstate == VID_GL_LIBRARY_LOADED)
+	{
+		HWR_ReadShaderDefinitions(wadnum, numlumps);
+		HWR_CompileShaders();
+	}
+
 	HWR_ReloadModels();
 #endif
 

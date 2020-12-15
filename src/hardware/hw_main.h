@@ -71,14 +71,6 @@ UINT32 HWR_GetBlendModeFlag(INT32 ast);
 UINT32 HWR_SurfaceBlend(INT32 style, INT32 transtablenum, FSurfaceInfo *pSurf);
 UINT32 HWR_TranstableToAlpha(INT32 transtablenum, FSurfaceInfo *pSurf);
 
-boolean HWR_CompileShaders(void);
-
-void HWR_LoadAllCustomShaders(void);
-void HWR_LoadCustomShadersFromFile(UINT16 wadnum, boolean PK3);
-const char *HWR_GetShaderName(INT32 shader);
-
-extern FShaderReferenceArray shaderxlat[];
-
 extern CV_PossibleValue_t glanisotropicmode_cons_t[];
 
 #ifdef ALAM_LIGHTING

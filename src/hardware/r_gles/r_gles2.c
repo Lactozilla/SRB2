@@ -496,7 +496,7 @@ static void SetState(INT32 State, INT32 Value)
 	switch (State)
 	{
 		case GPU_STATE_SHADERS:
-			ShadersAllowed = Value ? GL_TRUE : GL_FALSE;
+			ShadersAllowed = Value;
 			break;
 
 		case GPU_STATE_FRAMEBUFFER:
@@ -1284,9 +1284,14 @@ static void SetShaderInfo(INT32 info, INT32 value)
 	Shader_SetInfo(info, value);
 }
 
-static void LoadCustomShader(int number, char *shader, size_t size, boolean fragment)
+static void StoreShader(FShaderProgram *program, UINT32 number, char *shader, size_t size, UINT8 stage)
 {
-	Shader_LoadCustom(number, shader, size, fragment);
+	Shader_StoreSource(program, number, shader, size, stage);
+}
+
+static void StoreCustomShader(FShaderProgram *program, UINT32 number, char *shader, size_t size, UINT8 stage)
+{
+	Shader_StoreCustomSource(program, number, shader, size, stage);
 }
 
 static void UnSetShader(void)
@@ -1348,7 +1353,8 @@ struct GPURenderingAPI GLInterfaceAPI = {
 	UnSetShader,
 
 	SetShaderInfo,
-	LoadCustomShader,
+	StoreShader,
+	StoreCustomShader,
 };
 
 #endif //HWRENDER
