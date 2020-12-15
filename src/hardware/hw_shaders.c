@@ -306,14 +306,14 @@ static void ParseError(const char *err, ...)
 }
 
 static char **includesList = NULL;
-static UINT8 *includesStages = NULL;
+static INT16 *includesStages = NULL;
 static INT32 includesCount = 0;
 
 static void CollectInclude(const char *include, INT32 stage)
 {
 	includesCount++;
 	includesList = Z_Realloc(includesList, includesCount * sizeof(char *), PU_STATIC, NULL);
-	includesStages = Z_Realloc(includesStages, includesCount * sizeof(UINT8), PU_STATIC, NULL);
+	includesStages = Z_Realloc(includesStages, includesCount * sizeof(INT16), PU_STATIC, NULL);
 	includesList[includesCount - 1] = Z_StrDup(include);
 	includesStages[includesCount - 1] = stage;
 }
@@ -323,7 +323,7 @@ static void InsertInclude(FShaderIncludes *includes, INT32 ref)
 	includes->list = Z_Realloc(includes->list, (includes->count + 1) * sizeof(char *), PU_STATIC, NULL);
 	includes->stages = Z_Realloc(includes->stages, (includes->count + 1) * sizeof(UINT8), PU_STATIC, NULL);
 	includes->list[includes->count] = includesList[ref];
-	includes->stages[includes->count] = includesStages[ref];
+	includes->stages[includes->count] = (includesStages[ref] & 0xFF);
 	includes->count++;
 }
 
@@ -561,6 +561,7 @@ static boolean ParseShaderDefinitions(size_t lumplength, boolean mainfile)
 			{
 				char *inc = NULL, *src = NULL;
 				INT32 i = 0, numSources = 1, addedSources = 0;
+				INT32 incStart = -1, incEnd = 0;
 				FShaderProgram *prg = NULL;
 				UINT8 stage = SHADER_STAGE_NONE;
 
@@ -625,6 +626,10 @@ static boolean ParseShaderDefinitions(size_t lumplength, boolean mainfile)
 						{
 							CollectInclude(inc, stage);
 							addedSources++;
+
+							if (incStart == -1)
+								incStart = (includesCount - 1);
+							incEnd = (includesCount - 1);
 						}
 						else if (numSources == 1)
 						{
@@ -640,15 +645,32 @@ static boolean ParseShaderDefinitions(size_t lumplength, boolean mainfile)
 						Z_Free(inc);
 						goto failure;
 					}
-
-					Z_Free(inc);
 				}
 				else
 				{
-					ParseError("Shader \"%s\" tried to include shader \"%s\", but it does not exist", stagetype, src);
-					Z_Free(src);
+					ParseError("Shader \"%s\" tried to include shader \"%s\", but it does not exist", stagetype, inc);
+					Z_Free(inc);
 					goto failure;
 				}
+
+				Z_Free(tk);
+				tk = M_GetToken(NULL);
+				if (tk == NULL)
+				{
+					ParseError("EOF where option for shader \"%s\" included by shader \"%s\" should be", inc, name);
+					Z_Free(inc);
+					goto failure;
+				}
+
+				Z_Free(inc);
+
+				if (!stricmp(tk, "Replace"))
+				{
+					for (i = incStart; i <= incEnd; i++)
+						includesStages[i] |= 0x100;
+				}
+				else
+					M_UnGetToken();
 			}
 			else if (!stricmp(tk, "ClearIncludes"))
 			{
@@ -838,21 +860,34 @@ static boolean ParseShaderDefinitions(size_t lumplength, boolean mainfile)
 
 	if (includesCount)
 	{
+		FShaderIncludes *inc = &shader->includes;
 		INT32 i = 0, j, count = includesCount;
 
 		for (; i < count; i++)
 		{
-			for (j = 0; j < shader->includes.count; j++)
+			INT16 stage = includesStages[i];
+			boolean wasReplaced = false;
+
+			for (j = 0; j < inc->count; j++)
 			{
-				if (!stricmp(shader->includes.list[j], includesList[i])
-				&& (shader->includes.stages[j] == includesStages[i]))
+				if (!stricmp(inc->list[j], includesList[i])
+				&& (inc->stages[j] == (stage & 0xFF)))
 				{
-					RemoveInclude(&shader->includes, j);
+					if (stage & 0x100)
+					{
+						if (inc->list[j])
+							Z_Free(inc->list[j]);
+						inc->list[j] = includesList[i];
+						wasReplaced = true;
+					}
+					else
+						RemoveInclude(inc, j);
 					break;
 				}
 			}
 
-			InsertInclude(&shader->includes, i);
+			if (!wasReplaced)
+				InsertInclude(inc, i);
 		}
 
 		Z_Free(includesList);
