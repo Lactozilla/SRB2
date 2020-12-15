@@ -623,6 +623,7 @@ extern const char *compdate, *comptime, *comprevision, *compbranch;
 
 /// OpenGL shaders
 #define GL_SHADERS
+#define SHADERDEBUG
 
 #if defined(HAVE_GLES) && !defined(HAVE_GLES2)
 #undef GL_SHADERS

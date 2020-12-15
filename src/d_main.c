@@ -993,6 +993,10 @@ static void IdentifyVersion(void)
 	D_AddFile(startupwadfiles, va(pandf,srb2waddir,"patch.pk3"));
 #endif
 
+#ifdef SHADERDEBUG
+	D_AddFile(startupwadfiles, va(pandf,srb2waddir,"shadersources.wad"));
+#endif
+
 #if !defined (HAVE_SDL) || defined (HAVE_MIXER)
 	{
 #define MUSICTEST(str) \
@@ -1222,6 +1226,9 @@ void D_SRB2Main(void)
 
 	mainwads = 3; // doesn't include music.dta
 #ifdef USE_PATCH_DTA
+	mainwads++;
+#endif
+#ifdef SHADERDEBUG
 	mainwads++;
 #endif
 
