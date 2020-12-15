@@ -166,92 +166,6 @@ void Shader_SetInfo(INT32 info, INT32 value)
 //
 // Shader source loading
 //
-static void WriteShaderSource(char **dest, UINT8 stage, FShaderProgram *program, char *code, size_t size)
-{
-	size_t len = size, offs = 0, totaloffs = 0;
-	size_t *offsList = NULL;
-	char **includesList = NULL;
-	INT32 numIncludes = 0;
-
-	if (*dest)
-		free(*dest);
-
-	if (program && program->includes.count)
-	{
-		FShaderIncludes *includes = &program->includes;
-		INT32 i = 0;
-
-		for (; i < includes->count; i++)
-		{
-			FShaderProgram *builtin = NULL;
-
-			if (!stricmp(includes->list[i], SHADER_INCLUDES_SOFTWARE) && program->builtin)
-				builtin = HWR_FindFirstShaderProgram(SHADER_INCLUDES_SOFTWARE, NULL);
-			else
-				builtin = HWR_FindLastShaderProgram(includes->list[i], NULL);
-
-			if (builtin)
-			{
-				char *src = NULL;
-
-				if (stage == SHADER_STAGE_VERTEX && includes->stages[i] == SHADER_STAGE_VERTEX)
-					src = builtin->source.vertex;
-				else if (stage == SHADER_STAGE_FRAGMENT && includes->stages[i] == SHADER_STAGE_FRAGMENT)
-					src = builtin->source.fragment;
-
-				if (src)
-				{
-					numIncludes++;
-
-					offsList = Z_Realloc(offsList, numIncludes * sizeof(size_t), PU_STATIC, NULL);
-					includesList = Z_Realloc(includesList, numIncludes * sizeof(char *), PU_STATIC, NULL);
-
-					offs = (strlen(src) + 1);
-					offsList[numIncludes - 1] = totaloffs;
-
-					if (builtin->includes.count) // Recursive inclusion
-					{
-						char **buf = &includesList[numIncludes - 1];
-						(*buf) = NULL;
-						WriteShaderSource(buf, stage, builtin, src, offs - 1);
-						offs = (strlen((*buf)) + 1);
-					}
-					else
-						includesList[numIncludes - 1] = src;
-
-					totaloffs += offs;
-					len += offs;
-				}
-			}
-		}
-	}
-
-	*dest = malloc(len + 1);
-
-	if (numIncludes)
-	{
-		char *buf;
-		INT32 i = 0;
-
-		for (; i < numIncludes; i++)
-		{
-			offs = offsList[i];
-			buf = (*dest) + offs;
-
-			strncpy(buf, includesList[i], strlen(includesList[i]));
-			buf[strlen(includesList[i])] = '\n';
-		}
-	}
-
-	strncpy((*dest) + totaloffs, code, size);
-	(*dest)[len] = 0;
-
-	if (offsList)
-		Z_Free(offsList);
-	if (includesList)
-		Z_Free(includesList);
-}
-
 static void StoreShaderSource(FShaderProgram *program, FShaderSource *list, int number, char *code, size_t size, UINT8 stage)
 {
 	FShaderSource *shader;
@@ -267,9 +181,9 @@ static void StoreShaderSource(FShaderProgram *program, FShaderSource *list, int 
 	shader = &list[number];
 
 	if (stage == SHADER_STAGE_VERTEX)
-		WriteShaderSource(&shader->vertex, stage, program, code, size);
+		HWR_WriteShaderSource(&shader->vertex, stage, program, code, size);
 	else if (stage == SHADER_STAGE_FRAGMENT)
-		WriteShaderSource(&shader->fragment, stage, program, code, size);
+		HWR_WriteShaderSource(&shader->fragment, stage, program, code, size);
 }
 
 void Shader_StoreSource(FShaderProgram *program, UINT32 number, char *code, size_t size, UINT8 stage)

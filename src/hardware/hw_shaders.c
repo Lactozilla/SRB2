@@ -44,7 +44,6 @@ static void HWR_UploadShader(FShaderProgram *shader)
 {
 	void (*ShaderUploadFunction) (FShaderProgram *, UINT32, char *, size_t, UINT8) = NULL;
 
-	//if (!strcmp(shader->name, SHADER_INCLUDES_SOFTWARE))
 	if (shader->isInclude)
 		return;
 
@@ -204,6 +203,92 @@ void HWR_LoadShaders(void)
 		HWR_ReadShaderDefinitions(i, wadfiles[i]->numlumps);
 		HWR_LoadLegacyShadersFromFile(i, (wadfiles[i]->type == RET_PK3));
 	}
+}
+
+void HWR_WriteShaderSource(char **dest, UINT8 stage, FShaderProgram *program, char *code, size_t size)
+{
+	size_t len = size, offs = 0, totaloffs = 0;
+	size_t *offsList = NULL;
+	char **includesList = NULL;
+	INT32 numIncludes = 0;
+
+	if (*dest)
+		Z_Free(*dest);
+
+	if (program && program->includes.count)
+	{
+		FShaderIncludes *includes = &program->includes;
+		INT32 i = 0;
+
+		for (; i < includes->count; i++)
+		{
+			FShaderProgram *builtin = NULL;
+
+			if (!stricmp(includes->list[i], SHADER_INCLUDES_SOFTWARE) && program->builtin)
+				builtin = HWR_FindFirstShaderProgram(SHADER_INCLUDES_SOFTWARE, NULL);
+			else
+				builtin = HWR_FindLastShaderProgram(includes->list[i], NULL);
+
+			if (builtin)
+			{
+				char *src = NULL;
+
+				if (stage == SHADER_STAGE_VERTEX && includes->stages[i] == SHADER_STAGE_VERTEX)
+					src = builtin->source.vertex;
+				else if (stage == SHADER_STAGE_FRAGMENT && includes->stages[i] == SHADER_STAGE_FRAGMENT)
+					src = builtin->source.fragment;
+
+				if (src)
+				{
+					numIncludes++;
+
+					offsList = Z_Realloc(offsList, numIncludes * sizeof(size_t), PU_STATIC, NULL);
+					includesList = Z_Realloc(includesList, numIncludes * sizeof(char *), PU_STATIC, NULL);
+
+					offs = (strlen(src) + 1);
+					offsList[numIncludes - 1] = totaloffs;
+
+					if (builtin->includes.count) // Recursive inclusion
+					{
+						char **buf = &includesList[numIncludes - 1];
+						(*buf) = NULL;
+						HWR_WriteShaderSource(buf, stage, builtin, src, offs - 1);
+						offs = (strlen((*buf)) + 1);
+					}
+					else
+						includesList[numIncludes - 1] = src;
+
+					totaloffs += offs;
+					len += offs;
+				}
+			}
+		}
+	}
+
+	*dest = Z_Malloc(len + 1, PU_STATIC, NULL);
+
+	if (numIncludes)
+	{
+		char *buf;
+		INT32 i = 0;
+
+		for (; i < numIncludes; i++)
+		{
+			offs = offsList[i];
+			buf = (*dest) + offs;
+
+			strncpy(buf, includesList[i], strlen(includesList[i]));
+			buf[strlen(includesList[i])] = '\n';
+		}
+	}
+
+	strncpy((*dest) + totaloffs, code, size);
+	(*dest)[len] = 0;
+
+	if (offsList)
+		Z_Free(offsList);
+	if (includesList)
+		Z_Free(includesList);
 }
 
 static char *CurShaderDefsText = NULL;
@@ -390,9 +475,7 @@ static boolean ParseShaderDefinitions(size_t lumplength, boolean mainfile)
 							goto failure;
 						}
 
-						len = strlen(src) + 1;
-						sources[stage - 1] = Z_Calloc(len * sizeof(char), PU_STATIC, NULL);
-						M_Memcpy(sources[stage - 1], src, len);
+						HWR_WriteShaderSource(&sources[stage - 1], stage, def, src, strlen(src));
 					}
 					else
 					{

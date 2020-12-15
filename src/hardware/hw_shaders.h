@@ -21,9 +21,12 @@
 
 void HWR_LoadShaders(void);
 void HWR_ReadShaderDefinitions(UINT16 wadnum, UINT16 numlumps);
+
 boolean HWR_CompileShaders(void);
 
 const char *HWR_GetShaderName(INT32 shader);
+void HWR_WriteShaderSource(char **dest, UINT8 stage, FShaderProgram *program, char *code, size_t size);
+
 FShaderProgram *HWR_FindFirstShaderProgram(const char *name, INT32 *id);
 FShaderProgram *HWR_FindLastShaderProgram(const char *name, INT32 *id);
 
