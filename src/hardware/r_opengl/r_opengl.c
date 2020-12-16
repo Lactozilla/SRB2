@@ -643,7 +643,7 @@ static void SetState(INT32 State, INT32 Value)
 	switch (State)
 	{
 		case GPU_STATE_SHADERS:
-			ShadersAllowed = Value ? GL_TRUE : GL_FALSE;
+			ShadersAllowed = Value;
 			break;
 
 		case GPU_STATE_FRAMEBUFFER:
