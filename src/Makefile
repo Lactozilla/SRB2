@@ -732,6 +732,7 @@ $(OBJDIR)/%.o: sdl/macosx/%.c
 endif
 
 $(OBJDIR)/%.o: polyrenderer/%.c
+	$(echoName)
 	$(CC) $(CFLAGS) $(WFLAGS) -c $< -o $@
 
 $(OBJDIR)/%.o: hardware/%.c
