@@ -405,6 +405,15 @@ model_t *Model_ReadFile(const char *filename, int ztag)
 		material->shininess = 25.0f;
 	}
 
+	// Set originaluvs to point to uvs
+	for (i = 0; i < model->numMeshes; i++)
+		model->meshes[i].originaluvs = model->meshes[i].uvs;
+
+	model->max_s = 1.0;
+	model->max_t = 1.0;
+	model->vbo_max_s = 1.0;
+	model->vbo_max_t = 1.0;
+
 	return model;
 }
 
@@ -502,7 +511,7 @@ void Model_UnloadTextures(modelinfo_t *model)
 				grpatch = model->texture->tex; \
 				if (grpatch) \
 				{ \
-					Z_Free(grpatch->mipmap->grInfo.data); \
+					Z_Free(grpatch->mipmap->data); \
 					if (grpatch->mipmap) \
 						Z_Free(grpatch->mipmap); \
 					Z_Free(grpatch); \
@@ -566,16 +575,47 @@ modelinfo_t *Model_IsAvailable(spritenum_t spritenum, skin_t *skin)
 	if (!md2->texture)
 		md2->texture = Z_Calloc(sizeof(modeltexture_t), PU_MODEL, NULL);
 
-#ifdef HWRENDER
-	// Create mesh VBOs
-	if (!md2->meshVBOs && (rendermode == render_opengl))
-	{
-		HWD.pfnCreateModelVBOs(md2->model);
-		md2->meshVBOs = true;
-	}
-#endif
-
 	return md2;
+}
+
+// Adjust texture coords of model to fit into a patch's max_s and max_t
+void Model_AdjustTextureCoords(model_t *model, float max_s, float max_t)
+{
+	int i;
+	for (i = 0; i < model->numMeshes; i++)
+	{
+		int j;
+		mesh_t *mesh = &model->meshes[i];
+		int numVertices;
+		float *uvReadPtr = mesh->originaluvs;
+		float *uvWritePtr;
+
+		// i dont know if this is actually possible, just logical conclusion of structure in CreateModelVBOs
+		if (!mesh->frames && !mesh->tinyframes) continue;
+
+		if (mesh->frames) // again CreateModelVBO and CreateModelVBOTiny iterate like this so I'm gonna do that too
+			numVertices = mesh->numTriangles * 3;
+		else
+			numVertices = mesh->numVertices;
+
+		// if originaluvs points to uvs, we need to allocate new memory for adjusted uvs
+		// the old uvs are kept around for use in possible readjustments
+		if (mesh->uvs == mesh->originaluvs)
+			mesh->uvs = Z_Malloc(numVertices * 2 * sizeof(float), PU_STATIC, NULL);
+
+		uvWritePtr = mesh->uvs;
+
+		// fix uvs (texture coordinates) to take into account that the actual texture
+		// has empty space added until the next power of two
+		for (j = 0; j < numVertices; j++)
+		{
+			*uvWritePtr++ = *uvReadPtr++ * max_s;
+			*uvWritePtr++ = *uvReadPtr++ * max_t;
+		}
+	}
+	// Save the values we adjusted the uvs for
+	model->max_s = max_s;
+	model->max_t = max_t;
 }
 
 boolean Model_AllowRendering(mobj_t *mobj)

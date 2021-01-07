@@ -34,6 +34,8 @@
 #include "z_zone.h"
 #include "m_random.h" // quake camera shake
 #include "r_portal.h"
+#include "r_main.h"
+#include "i_system.h" // I_GetTimeMicros
 
 #ifdef POLYRENDERER
 #include "polyrenderer/r_softpoly.h"
@@ -109,6 +111,24 @@ lighttable_t *zlight[LIGHTLEVELS][MAXLIGHTZ];
 // Hack to support extra boom colormaps.
 extracolormap_t *extra_colormaps = NULL;
 
+// Render stats
+int rs_prevframetime = 0;
+int rs_rendercalltime = 0;
+int rs_uitime = 0;
+int rs_swaptime = 0;
+int rs_tictime = 0;
+
+int rs_bsptime = 0;
+
+int rs_sw_portaltime = 0;
+int rs_sw_planetime = 0;
+int rs_sw_maskedtime = 0;
+
+int rs_numbspcalls = 0;
+int rs_numsprites = 0;
+int rs_numdrawnodes = 0;
+int rs_numpolyobjects = 0;
+
 static CV_PossibleValue_t drawdist_cons_t[] = {
 	{256, "256"},	{512, "512"},	{768, "768"},
 	{1024, "1024"},	{1536, "1536"},	{2048, "2048"},
@@ -158,6 +178,8 @@ consvar_t cv_fov = {"fov", "90", CV_FLOAT|CV_CALL, fov_cons_t, Fov_OnChange, 0, 
 consvar_t cv_homremoval = {"homremoval", "No", CV_SAVE, homremoval_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
 
 consvar_t cv_maxportals = {"maxportals", "2", CV_SAVE, maxportals_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
+
+consvar_t cv_renderstats = {"renderstats", "Off", 0, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
 
 void SplitScreen_OnChange(void)
 {
@@ -307,6 +329,24 @@ angle_t R_PointToAngle(fixed_t x, fixed_t y)
 		ANGLE_90 + tantoangle[SlopeDiv(x,y)] :                         // octant 2
 		(x = -x) > (y = -y) ? ANGLE_180+tantoangle[SlopeDiv(y,x)] :    // octant 4
 		ANGLE_270-tantoangle[SlopeDiv(x,y)] :                          // octant 5
+		0;
+}
+
+// This version uses 64-bit variables to avoid overflows with large values.
+// Currently used only by OpenGL rendering.
+angle_t R_PointToAngle64(INT64 x, INT64 y)
+{
+	return (y -= viewy, (x -= viewx) || y) ?
+	x >= 0 ?
+	y >= 0 ?
+		(x > y) ? tantoangle[SlopeDivEx(y,x)] :                            // octant 0
+		ANGLE_90-tantoangle[SlopeDivEx(x,y)] :                               // octant 1
+		x > (y = -y) ? 0-tantoangle[SlopeDivEx(y,x)] :                    // octant 8
+		ANGLE_270+tantoangle[SlopeDivEx(x,y)] :                              // octant 7
+		y >= 0 ? (x = -x) > y ? ANGLE_180-tantoangle[SlopeDivEx(y,x)] :  // octant 3
+		ANGLE_90 + tantoangle[SlopeDivEx(x,y)] :                             // octant 2
+		(x = -x) > (y = -y) ? ANGLE_180+tantoangle[SlopeDivEx(y,x)] :    // octant 4
+		ANGLE_270-tantoangle[SlopeDivEx(x,y)] :                              // octant 5
 		0;
 }
 
@@ -917,11 +957,6 @@ void R_ExecuteSetViewSize(void)
 
 	R_InitTextureMapping();
 
-#ifdef HWRENDER
-	if (rendermode != render_soft)
-		HWR_InitTextureMapping();
-#endif
-
 	// thing clipping
 	for (i = 0; i < viewwidth; i++)
 		screenheightarray[i] = (INT16)viewheight;
@@ -1064,28 +1099,40 @@ subsector_t *R_PointInSubsectorOrNull(fixed_t x, fixed_t y)
 // R_SetupFrame
 //
 
-// WARNING: a should be unsigned but to add with 2048, it isn't!
-#define AIMINGTODY(a) ((FINETANGENT((2048+(((INT32)a)>>ANGLETOFINESHIFT)) & FINEMASK)*160)/fovtan)
-
 // recalc necessary stuff for mouseaiming
 // slopes are already calculated for the full possible view (which is 4*viewheight).
 // 18/08/18: (No it's actually 16*viewheight, thanks Jimita for finding this out)
-static void R_SetupFreelook(void)
+static void R_SetupFreelook(player_t *player, boolean skybox)
 {
 	INT32 dy = 0;
+
+#ifndef HWRENDER
+	(void)player;
+	(void)skybox;
+#endif
+
+	// clip it in the case we are looking a hardware 90 degrees full aiming
+	// (lmps, network and use F12...)
+	if (rendermode == render_soft
+#ifdef HWRENDER
+		|| (rendermode == render_opengl
+			&& (cv_glshearing.value == 1
+			|| (cv_glshearing.value == 2 && R_IsViewpointThirdPerson(player, skybox))))
+#endif
+		)
+	{
+		G_SoftwareClipAimingPitch((INT32 *)&aimingangle);
+	}
+
 	if (rendermode == render_soft)
 	{
-		// clip it in the case we are looking a hardware 90 degrees full aiming
-		// (lmps, network and use F12...)
-		G_SoftwareClipAimingPitch((INT32 *)&aimingangle);
-		dy = AIMINGTODY(aimingangle) * viewwidth/BASEVIDWIDTH;
+		dy = (AIMINGTODY(aimingangle)>>FRACBITS) * viewwidth/BASEVIDWIDTH;
 		yslope = &yslopetab[viewheight*8 - (viewheight/2 + dy)];
 	}
+
 	centery = (viewheight/2) + dy;
 	centeryfrac = centery<<FRACBITS;
 }
-
-#undef AIMINGTODY
 
 void R_SetupFrame(player_t *player)
 {
@@ -1191,7 +1238,7 @@ void R_SetupFrame(player_t *player)
 	viewsin = FINESINE(viewangle>>ANGLETOFINESHIFT);
 	viewcos = FINECOSINE(viewangle>>ANGLETOFINESHIFT);
 
-	R_SetupFreelook();
+	R_SetupFreelook(player, false);
 }
 
 void R_SkyboxFrame(player_t *player)
@@ -1328,7 +1375,39 @@ void R_SkyboxFrame(player_t *player)
 	viewsin = FINESINE(viewangle>>ANGLETOFINESHIFT);
 	viewcos = FINECOSINE(viewangle>>ANGLETOFINESHIFT);
 
-	R_SetupFreelook();
+	R_SetupFreelook(player, true);
+}
+
+boolean R_ViewpointHasChasecam(player_t *player)
+{
+	boolean chasecam = false;
+
+	if (splitscreen && player == &players[secondarydisplayplayer] && player != &players[consoleplayer])
+		chasecam = (cv_chasecam2.value != 0);
+	else
+		chasecam = (cv_chasecam.value != 0);
+
+	if (player->climbing || (player->powers[pw_carry] == CR_NIGHTSMODE) || player->playerstate == PST_DEAD || gamestate == GS_TITLESCREEN || tutorialmode)
+		chasecam = true; // force chasecam on
+	else if (player->spectator) // no spectator chasecam
+		chasecam = false; // force chasecam off
+
+	return chasecam;
+}
+
+boolean R_IsViewpointThirdPerson(player_t *player, boolean skybox)
+{
+	boolean chasecam = R_ViewpointHasChasecam(player);
+
+	// cut-away view stuff
+	if (player->awayviewtics || skybox)
+		return chasecam;
+	// use outside cam view
+	else if (!player->spectator && chasecam)
+		return true;
+
+	// use the player's eyes view
+	return false;
 }
 
 static void R_PortalFrame(portal_t *portal)
@@ -1416,7 +1495,7 @@ void R_RenderPlayerView(player_t *player)
 	else
 	{
 		portalclipstart = 0;
-		portalclipend = viewwidth-1;
+		portalclipend = viewwidth;
 		R_ClearClipSegs();
 	}
 	R_ClearDrawSegs();
@@ -1446,7 +1525,11 @@ void R_RenderPlayerView(player_t *player)
 	mytotal = 0;
 	ProfZeroTimer();
 #endif
+	rs_numbspcalls = rs_numpolyobjects = rs_numdrawnodes = 0;
+	rs_bsptime = I_GetTimeMicros();
 	R_RenderBSPNode((INT32)numnodes - 1);
+	rs_bsptime = I_GetTimeMicros() - rs_bsptime;
+	rs_numsprites = visspritecount;
 #ifdef TIMING
 	RDMSR(0x10, &mycount);
 	mytotal += mycount; // 64bit add
@@ -1468,6 +1551,7 @@ void R_RenderPlayerView(player_t *player)
 		Portal_AddSkyboxPortals();
 
 	// Portal rendering. Hijacks the BSP traversal.
+	rs_sw_portaltime = I_GetTimeMicros();
 	if (portal_base)
 	{
 		portal_t *portal;
@@ -1515,25 +1599,29 @@ void R_RenderPlayerView(player_t *player)
 			Portal_Remove(portal);
 		}
 	}
+	rs_sw_portaltime = I_GetTimeMicros() - rs_sw_portaltime;
 
 #ifdef POLYRENDERER
 	if (modelinview)
 		RSP_RestoreViewpoint();
 #endif
 
+	rs_sw_planetime = I_GetTimeMicros();
 	R_DrawPlanes();
 #ifdef FLOORSPLATS
 	R_DrawVisibleFloorSplats();
 #endif
+	rs_sw_planetime = I_GetTimeMicros() - rs_sw_planetime;
 
 	// draw mid texture and sprite
 	// And now 3D floors/sides!
+	rs_sw_maskedtime = I_GetTimeMicros();
 	R_DrawMasked(masks, nummasks);
+	rs_sw_maskedtime = I_GetTimeMicros() - rs_sw_maskedtime;
 
 	free(masks);
 }
 
-// Lactozilla: Renderer switching
 #ifdef HWRENDER
 void R_InitHardwareMode(void)
 {
@@ -1547,7 +1635,6 @@ void R_InitHardwareMode(void)
 
 void R_ReloadHUDGraphics(void)
 {
-	CONS_Debug(DBG_RENDER, "R_ReloadHUDGraphics()...\n");
 	ST_LoadGraphics();
 	HU_LoadGraphics();
 	ST_ReloadSkinFaceGraphics();

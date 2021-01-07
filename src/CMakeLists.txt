@@ -36,6 +36,7 @@ set(SRB2_CORE_SOURCES
 	m_random.c
 	md5.c
 	mserv.c
+	http-mserv.c
 	s_sound.c
 	screen.c
 	sounds.c
@@ -126,7 +127,8 @@ set(SRB2_CORE_RENDER_SOURCES
 	r_sky.c
 	r_splats.c
 	r_things.c
-	r_patch.c
+	r_textures.c
+	r_picformats.c
 	r_portal.c
 	r_md2load.c
 	r_md3load.c
@@ -147,7 +149,8 @@ set(SRB2_CORE_RENDER_SOURCES
 	r_splats.h
 	r_state.h
 	r_things.h
-	r_patch.h
+	r_textures.h
+	r_picformats.h
 	r_portal.h
 	r_md2load.h
 	r_md3load.h
@@ -236,6 +239,16 @@ set(SRB2_CONFIG_HAVE_GME ON CACHE BOOL
 	"Enable GME support.")
 set(SRB2_CONFIG_HAVE_OPENMPT ON CACHE BOOL
 	"Enable OpenMPT support.")
+set(SRB2_CONFIG_HAVE_CURL ON CACHE BOOL
+	"Enable curl support.")
+set(SRB2_CONFIG_HAVE_THREADS ON CACHE BOOL
+	"Enable multithreading support.")
+if(${CMAKE_SYSTEM} MATCHES Windows)
+	set(SRB2_CONFIG_HAVE_MIXERX ON CACHE BOOL
+		"Enable SDL Mixer X support.")
+else()
+	set(SRB2_CONFIG_HAVE_MIXERX OFF)
+endif()
 set(SRB2_CONFIG_HWRENDER ON CACHE BOOL
 	"Enable hardware rendering through OpenGL.")
 set(SRB2_CONFIG_POLYRENDERER ON CACHE BOOL
@@ -378,6 +391,30 @@ if(${SRB2_CONFIG_HAVE_OPENMPT})
 	endif()
 endif()
 
+if(${SRB2_CONFIG_HAVE_MIXERX})
+	if(${SRB2_CONFIG_USE_INTERNAL_LIBRARIES})
+		set(MIXERX_FOUND ON)
+		set(MIXERX_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/libs/SDLMixerX/i686-w64-mingw32/include/SDL2)
+        if(${SRB2_SYSTEM_BITS} EQUAL 64)
+			set(MIXERX_LIBRARIES "-L${CMAKE_SOURCE_DIR}/libs/SDLMixerX/x86_64-w64-mingw32/lib -lSDL2_mixer_ext")
+		else() # 32-bit
+			set(MIXERX_LIBRARIES "-L${CMAKE_SOURCE_DIR}/libs/SDLMixerX/i686-w64-mingw32/lib -lSDL2_mixer_ext")
+		endif()
+	else()
+		# No support for non-Windows (yet?)
+		#find_package(MIXERX)
+		message(WARNING "SDL Mixer X is not supported as an external library.")
+		set(MIXERX_FOUND OFF)
+	endif()
+	if(${MIXERX_FOUND})
+		set(SRB2_HAVE_MIXERX ON)
+		set(SRB2_SDL2_SOUNDIMPL mixer_sound.c)
+		add_definitions(-DHAVE_MIXERX)
+	else()
+		message(WARNING "You have specified that SDL Mixer X is available but it was not found.")
+	endif()
+endif()
+
 if(${SRB2_CONFIG_HAVE_ZLIB})
 	if(${SRB2_CONFIG_USE_INTERNAL_LIBRARIES})
 		set(ZLIB_FOUND ON)
@@ -427,9 +464,36 @@ if(${SRB2_CONFIG_HAVE_PNG} AND ${SRB2_CONFIG_HAVE_ZLIB})
 	endif()
 endif()
 
+if(${SRB2_CONFIG_HAVE_CURL})
+	if(${SRB2_CONFIG_USE_INTERNAL_LIBRARIES})
+		set(CURL_FOUND ON)
+		set(CURL_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/libs/curl/include)
+		if(${SRB2_SYSTEM_BITS} EQUAL 64)
+			set(CURL_LIBRARIES "-L${CMAKE_SOURCE_DIR}/libs/curl/lib64 -lcurl")
+		else() # 32-bit
+			set(CURL_LIBRARIES "-L${CMAKE_SOURCE_DIR}/libs/curl/lib32 -lcurl")
+		endif()
+	else()
+		find_package(CURL)
+	endif()
+	if(${CURL_FOUND})
+		set(SRB2_HAVE_CURL ON)
+		add_definitions(-DHAVE_CURL)
+	else()
+		message(WARNING "You have specified that CURL is available but it was not found. SRB2 may not compile correctly.")
+	endif()
+endif()
+
+if(${SRB2_CONFIG_HAVE_THREADS})
+	set(SRB2_HAVE_THREADS ON)
+	set(SRB2_CORE_HEADERS ${SRB2_CORE_HEADERS} ${CMAKE_CURRENT_SOURCE_DIR}/i_threads.h)
+	add_definitions(-DHAVE_THREADS)
+endif()
+
 if(${SRB2_CONFIG_HWRENDER})
 	add_definitions(-DHWRENDER)
 	set(SRB2_HWRENDER_SOURCES
+		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_batching.c
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_bsp.c
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_cache.c
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_clip.c
@@ -437,16 +501,15 @@ if(${SRB2_CONFIG_HWRENDER})
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_light.c
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_main.c
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_md2.c
-		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_trick.c
 	)
 
 	set (SRB2_HWRENDER_HEADERS
+		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_batching.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_clip.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_data.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_defs.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_dll.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_drv.h
-		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_glide.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_glob.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_light.h
 		${CMAKE_CURRENT_SOURCE_DIR}/hardware/hw_main.h
@@ -507,12 +570,34 @@ if(${SRB2_CONFIG_USEASM})
 	endif()
 	set(SRB2_USEASM ON)
 	add_definitions(-DUSEASM)
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msse3 -mfpmath=sse")
 else()
 	set(SRB2_USEASM OFF)
 	add_definitions(-DNONX86 -DNORUSEASM)
 endif()
 
 # Targets
+
+# If using CCACHE, then force it.
+# https://github.com/Cockatrice/Cockatrice/pull/3052/files
+if (${CMAKE_SYSTEM} MATCHES "Darwin")
+	get_property(RULE_LAUNCH_COMPILE GLOBAL PROPERTY RULE_LAUNCH_COMPILE)
+	if(RULE_LAUNCH_COMPILE)
+		MESSAGE(STATUS "Force enabling CCache usage under macOS")
+		# Set up wrapper scripts
+		configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/launch-c.in   ${CMAKE_BINARY_DIR}/launch-c)
+		configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/launch-cxx.in ${CMAKE_BINARY_DIR}/launch-cxx)
+		execute_process(COMMAND chmod a+rx
+			"${CMAKE_BINARY_DIR}/launch-c"
+			"${CMAKE_BINARY_DIR}/launch-cxx")
+
+		# Set Xcode project attributes to route compilation through our scripts
+		set(CMAKE_XCODE_ATTRIBUTE_CC         "${CMAKE_BINARY_DIR}/launch-c")
+		set(CMAKE_XCODE_ATTRIBUTE_CXX        "${CMAKE_BINARY_DIR}/launch-cxx")
+		set(CMAKE_XCODE_ATTRIBUTE_LD         "${CMAKE_BINARY_DIR}/launch-c")
+		set(CMAKE_XCODE_ATTRIBUTE_LDPLUSPLUS "${CMAKE_BINARY_DIR}/launch-cxx")
+	endif()
+endif()
 
 # Compatibility flag with later versions of GCC
 # We should really fix our code to not need this

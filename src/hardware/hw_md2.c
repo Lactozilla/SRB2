@@ -51,12 +51,12 @@
 #define SETBRIGHTNESS(brightness,r,g,b) \
 	brightness = (UINT8)(((1063*(UINT16)(r))/5000) + ((3576*(UINT16)(g))/5000) + ((361*(UINT16)(b))/5000))
 
-static void HWR_CreateBlendedTexture(GLPatch_t *gpatch, GLPatch_t *blendgpatch, GLMipmap_t *grmip, INT32 skinnum, skincolors_t color)
+static void HWR_CreateBlendedTexture(GLPatch_t *gpatch, GLPatch_t *blendgpatch, GLMipmap_t *grmip, INT32 skinnum, skincolornum_t color)
 {
 	UINT16 w = gpatch->width, h = gpatch->height;
 	UINT32 size = w*h;
 	RGBA_t *image, *blendimage, *cur, blendcolor;
-	UINT8 translation[16]; // First the color index
+	UINT16 translation[16]; // First the color index
 	UINT8 cutoff[16]; // Brightness cutoff before using the next color
 	UINT8 translen = 0;
 	UINT8 i;
@@ -73,35 +73,35 @@ static void HWR_CreateBlendedTexture(GLPatch_t *gpatch, GLPatch_t *blendgpatch, 
 		// no wrap around, no chroma key
 		grmip->flags = 0;
 		// setup the texture info
-		grmip->grInfo.format = GR_RGBA;
+		grmip->format = GL_TEXFMT_RGBA;
 	}
 
-	if (grmip->grInfo.data)
+	if (grmip->data)
 	{
-		Z_Free(grmip->grInfo.data);
-		grmip->grInfo.data = NULL;
+		Z_Free(grmip->data);
+		grmip->data = NULL;
 	}
 
-	cur = Z_Malloc(size*4, PU_HWRMODELTEXTURE, &grmip->grInfo.data);
+	cur = Z_Malloc(size*4, PU_HWRMODELTEXTURE, &grmip->data);
 	memset(cur, 0x00, size*4);
 
-	image = gpatch->mipmap->grInfo.data;
-	blendimage = blendgpatch->mipmap->grInfo.data;
+	image = gpatch->mipmap->data;
+	blendimage = blendgpatch->mipmap->data;
 
 	// TC_METALSONIC includes an actual skincolor translation, on top of its flashing.
 	if (skinnum == TC_METALSONIC)
 		color = SKINCOLOR_COBALT;
 
-	if (color != SKINCOLOR_NONE)
+	if (color != SKINCOLOR_NONE && color < numskincolors)
 	{
 		UINT8 numdupes = 1;
 
-		translation[translen] = Color_Index[color-1][0];
+		translation[translen] = skincolors[color].ramp[0];
 		cutoff[translen] = 255;
 
 		for (i = 1; i < 16; i++)
 		{
-			if (translation[translen] == Color_Index[color-1][i])
+			if (translation[translen] == skincolors[color].ramp[i])
 			{
 				numdupes++;
 				continue;
@@ -115,7 +115,7 @@ static void HWR_CreateBlendedTexture(GLPatch_t *gpatch, GLPatch_t *blendgpatch, 
 			numdupes = 1;
 			translen++;
 
-			translation[translen] = (UINT8)Color_Index[color-1][i];
+			translation[translen] = (UINT16)skincolors[color].ramp[i];
 		}
 
 		translen++;
@@ -323,11 +323,19 @@ static void HWR_CreateBlendedTexture(GLPatch_t *gpatch, GLPatch_t *blendgpatch, 
 
 					blendcolor = V_GetColor(translation[firsti]);
 
+					if (secondi >= translen)
+						mul = 0;
+
 					if (mul > 0) // If it's 0, then we only need the first color.
 					{
-						if (secondi >= translen) // blend to black
+#if 0
+						if (secondi >= translen)
+						{
+							// blend to black
 							nextcolor = V_GetColor(31);
+						}
 						else
+#endif
 							nextcolor = V_GetColor(translation[secondi]);
 
 						// Find difference between points
@@ -417,7 +425,7 @@ skippixel:
 
 #undef SETBRIGHTNESS
 
-static void HWR_GetBlendedTexture(GLPatch_t *gpatch, GLPatch_t *blendgpatch, INT32 skinnum, const UINT8 *colormap, skincolors_t color)
+static void HWR_GetBlendedTexture(GLPatch_t *gpatch, GLPatch_t *blendgpatch, INT32 skinnum, const UINT8 *colormap, skincolornum_t color)
 {
 	// mostly copied from HWR_GetMappedPatch, hence the similarities and comment
 	GLMipmap_t *grmip, *newmip;
@@ -429,7 +437,7 @@ static void HWR_GetBlendedTexture(GLPatch_t *gpatch, GLPatch_t *blendgpatch, INT
 		return;
 	}
 
-	if ((blendgpatch && blendgpatch->mipmap->grInfo.format)
+	if ((blendgpatch && blendgpatch->mipmap->format)
 		&& (gpatch->width != blendgpatch->width || gpatch->height != blendgpatch->height))
 	{
 		// Blend image exists, but it's bad.
@@ -444,10 +452,10 @@ static void HWR_GetBlendedTexture(GLPatch_t *gpatch, GLPatch_t *blendgpatch, INT
 		grmip = grmip->nextcolormap;
 		if (grmip->colormap == colormap)
 		{
-			if (grmip->downloaded && grmip->grInfo.data)
+			if (grmip->downloaded && grmip->data)
 			{
 				HWD.pfnSetTexture(grmip); // found the colormap, set it to the correct texture
-				Z_ChangeTag(grmip->grInfo.data, PU_HWRMODELTEXTURE_UNLOCKED);
+				Z_ChangeTag(grmip->data, PU_HWRMODELTEXTURE_UNLOCKED);
 				return;
 			}
 		}
@@ -469,29 +477,23 @@ static void HWR_GetBlendedTexture(GLPatch_t *gpatch, GLPatch_t *blendgpatch, INT
 	HWR_CreateBlendedTexture(gpatch, blendgpatch, newmip, skinnum, color);
 
 	HWD.pfnSetTexture(newmip);
-	Z_ChangeTag(newmip->grInfo.data, PU_HWRMODELTEXTURE_UNLOCKED);
+	Z_ChangeTag(newmip->data, PU_HWRMODELTEXTURE_UNLOCKED);
 }
-
-#define NORMALFOG 0x00000000
-#define FADEFOG 0x19000000
 
 //
 // HWR_DrawModel
 //
 
-boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
+boolean HWR_DrawModel(modelinfo_t *md2, gl_vissprite_t *spr)
 {
 	FSurfaceInfo Surf;
+
 	INT32 frame = 0;
 	INT32 nextFrame = -1;
 	UINT8 spr2 = 0;
 	FTransform p;
-	UINT8 color[4];
 
-	if (md2->error)
-		return false; // we already failed loading this before :(
-
-	if (spr->precip)
+	if (!cv_models.value || md2->error || spr->precip)
 		return false;
 
 	// Lactozilla: Disallow certain models from rendering
@@ -529,13 +531,10 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 				colormap = sector->extra_colormap;
 		}
 
-		if (colormap)
-			Surf.FlatColor.rgba = HWR_Lighting(lightlevel, colormap->rgba, colormap->fadergba, false, false);
-		else
-			Surf.FlatColor.rgba = HWR_Lighting(lightlevel, NORMALFOG, FADEFOG, false, false);
+		HWR_Lighting(&Surf, lightlevel, colormap);
 	}
 	else
-		Surf.FlatColor.rgba = 0xFFFFFFFF;
+		Surf.PolyColor.rgba = 0xFFFFFFFF;
 
 	// Look at HWR_ProjectSprite for more
 	{
@@ -545,6 +544,7 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 		//mdlframe_t *next = NULL;
 		const boolean papersprite = (spr->mobj->frame & FF_PAPERSPRITE);
 		const UINT8 flip = (UINT8)(!(spr->mobj->eflags & MFE_VERTICALFLIP) != !(spr->mobj->frame & FF_VERTICALFLIP));
+		const UINT8 hflip = (UINT8)(!(spr->mobj->mirrored) != !(spr->mobj->frame & FF_HORIZONTALFLIP));
 		spritedef_t *sprdef;
 		spriteframe_t *sprframe;
 		spriteinfo_t *sprinfo;
@@ -552,7 +552,23 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 		INT32 mod;
 		float finalscale;
 
-		if (spr->mobj->skin && spr->mobj->sprite == SPR_PLAY)
+		// Apparently people don't like jump frames like that, so back it goes
+		//if (tics > durs)
+			//durs = tics;
+
+		if (spr->mobj->flags2 & MF2_SHADOW)
+			Surf.PolyColor.s.alpha = 0x40;
+		else if (spr->mobj->frame & FF_TRANSMASK)
+			HWR_TranstableToAlpha((spr->mobj->frame & FF_TRANSMASK)>>FF_TRANSSHIFT, &Surf);
+		else
+			Surf.PolyColor.s.alpha = 0xFF;
+
+		// dont forget to enabled the depth test because we can't do this like
+		// before: polygons models are not sorted
+
+		// 1. load model+texture if not already loaded
+		// 2. draw model with correct position, rotation,...
+		if (spr->mobj->skin && spr->mobj->sprite == SPR_PLAY) // Use the player MD2 list if the mobj has a skin and is using the player sprites
 		{
 			sprdef = &((skin_t *)spr->mobj->skin)->sprites[spr->mobj->sprite2];
 			sprinfo = &((skin_t *)spr->mobj->skin)->sprinfo[spr->mobj->sprite2];
@@ -563,18 +579,8 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 			sprinfo = &spriteinfo[spr->mobj->sprite];
 		}
 
-		if (spr->mobj->flags2 & MF2_SHADOW)
-			Surf.FlatColor.s.alpha = 0x40;
-		else if (spr->mobj->frame & FF_TRANSMASK)
-			HWR_TranstableToAlpha((spr->mobj->frame & FF_TRANSMASK)>>FF_TRANSSHIFT, &Surf);
-		else
-			Surf.FlatColor.s.alpha = 0xFF;
-
-		//HWD.pfnSetBlend(blend); // This seems to actually break translucency?
-		finalscale = md2->scale;
-		//Hurdler: arf, I don't like that implementation at all... too much crappy
 		gpatch = md2->texture->grpatch;
-		if (!gpatch || !gpatch->mipmap->grInfo.format || !gpatch->mipmap->downloaded)
+		if (!gpatch || !gpatch->mipmap->format || !gpatch->mipmap->downloaded)
 		{
 			if (Model_LoadTexture(md2))
 			{
@@ -583,14 +589,32 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 			}
 		}
 
-		if ((gpatch && gpatch->mipmap->grInfo.format) // don't load the blend texture if the base texture isn't available
-			&& (!md2->texture->blendgrpatch || !((GLPatch_t *)md2->texture->blendgrpatch)->mipmap->grInfo.format || !((GLPatch_t *)md2->texture->blendgrpatch)->mipmap->downloaded))
+		if ((gpatch && gpatch->mipmap->format) // don't load the blend texture if the base texture isn't available
+			&& (!md2->texture->blendgrpatch || !((GLPatch_t *)md2->texture->blendgrpatch)->mipmap->format || !((GLPatch_t *)md2->texture->blendgrpatch)->mipmap->downloaded))
 		{
 			if (Model_LoadBlendTexture(md2))
 				HWD.pfnSetTexture(((GLPatch_t *)md2->texture->blendgrpatch)->mipmap); // We do need to do this so that it can be cleared and knows to recreate it when necessary
 		}
 
-		if (gpatch && gpatch->mipmap->grInfo.format) // else if meant that if a texture couldn't be loaded, it would just end up using something else's texture
+		// Create mesh VBOs
+		if (!md2->meshVBOs)
+		{
+			// If model uses sprite patch as texture, then
+			// adjust texture coordinates to take power of two textures into account
+			if (!gpatch || !gpatch->mipmap->format)
+				Model_AdjustTextureCoords(md2->model, spr->gpatch->max_s, spr->gpatch->max_t);
+			// note down the max_s and max_t that end up in the VBO
+			md2->model->vbo_max_s = md2->model->max_s;
+			md2->model->vbo_max_t = md2->model->max_t;
+			HWD.pfnCreateModelVBOs(md2->model);
+			md2->meshVBOs = true;
+		}
+
+		//HWD.pfnSetBlend(blend); // This seems to actually break translucency?
+		finalscale = md2->scale;
+		//Hurdler: arf, I don't like that implementation at all... too much crappy
+
+		if (gpatch && gpatch->mipmap->format) // else if meant that if a texture couldn't be loaded, it would just end up using something else's texture
 		{
 			INT32 skinnum = TC_DEFAULT;
 
@@ -603,7 +627,7 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 				else
 					skinnum = TC_BOSS;
 			}
-			else if ((skincolors_t)spr->mobj->color != SKINCOLOR_NONE)
+			else if ((skincolornum_t)spr->mobj->color != SKINCOLOR_NONE)
 			{
 				if (spr->mobj->colorized)
 					skinnum = TC_RAINBOW;
@@ -623,12 +647,20 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 			}
 
 			// Translation or skin number found
-			HWR_GetBlendedTexture(gpatch, (GLPatch_t *)md2->texture->blendgrpatch, skinnum, spr->colormap, (skincolors_t)spr->mobj->color);
+			HWR_GetBlendedTexture(gpatch, (GLPatch_t *)md2->texture->blendgrpatch, skinnum, spr->colormap, (skincolornum_t)spr->mobj->color);
 		}
 		else
 		{
 			// Sprite
 			gpatch = spr->gpatch;
+			// Check if sprite dimensions are different from previously used sprite.
+			// If so, uvs need to be readjusted.
+			// Comparing floats with the != operator here should be okay because they
+			// are just copies of glpatches' max_s and max_t values.
+			// Instead of the != operator, memcmp is used to avoid a compiler warning.
+			if (memcmp(&(gpatch->max_s), &(md2->model->max_s), sizeof(md2->model->max_s)) != 0 ||
+				memcmp(&(gpatch->max_t), &(md2->model->max_t), sizeof(md2->model->max_t)) != 0)
+				Model_AdjustTextureCoords(md2->model, gpatch->max_s, gpatch->max_t);
 			HWR_GetMappedPatch(gpatch, spr->colormap);
 		}
 
@@ -660,11 +692,10 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 		}
 
 #ifdef USE_MODEL_NEXTFRAME
-#define INTERPOLERATION_LIMIT TICRATE/4
-		if (cv_modelinterpolation.value && tics <= durs && tics <= INTERPOLERATION_LIMIT)
+		if (cv_modelinterpolation.value && tics <= durs && tics <= MODEL_INTERPOLATION_LIMIT)
 		{
-			if (durs > INTERPOLERATION_LIMIT)
-				durs = INTERPOLERATION_LIMIT;
+			if (durs > MODEL_INTERPOLATION_LIMIT)
+				durs = MODEL_INTERPOLATION_LIMIT;
 
 			if (spr->mobj->skin && spr->mobj->sprite == SPR_PLAY && md2->model->spr2frames)
 			{
@@ -700,7 +731,6 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 				}
 			}
 		}
-#undef INTERPOLERATION_LIMIT
 #endif
 
 		//Hurdler: it seems there is still a small problem with mobj angle
@@ -774,11 +804,6 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 		}
 #endif
 
-		color[0] = Surf.FlatColor.s.red;
-		color[1] = Surf.FlatColor.s.green;
-		color[2] = Surf.FlatColor.s.blue;
-		color[3] = Surf.FlatColor.s.alpha;
-
 		// SRB2CBTODO: MD2 scaling support
 		finalscale *= FIXED_TO_FLOAT(spr->mobj->scale);
 
@@ -787,7 +812,8 @@ boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr)
 		p.mirror = atransform.mirror; // from Kart
 #endif
 
-		HWD.pfnDrawModel(md2->model, frame, durs, tics, nextFrame, &p, finalscale, flip, color);
+		HWD.pfnSetShader(4);	// model shader
+		HWD.pfnDrawModel(md2->model, frame, durs, tics, nextFrame, &p, finalscale, flip, hflip, &Surf);
 	}
 
 	return true;

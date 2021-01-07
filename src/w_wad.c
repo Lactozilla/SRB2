@@ -56,6 +56,8 @@
 #include "d_clisrv.h"
 #include "r_defs.h"
 #include "r_data.h"
+#include "r_textures.h"
+#include "r_picformats.h"
 #include "i_system.h"
 #include "md5.h"
 #include "lua_script.h"
@@ -65,15 +67,8 @@
 #include "m_misc.h" // M_MapNumber
 
 #ifdef HWRENDER
-#include "r_data.h"
 #include "hardware/hw_main.h"
 #include "hardware/hw_glob.h"
-#endif
-
-#ifdef PC_DOS
-#include <stdio.h> // for snprintf
-int	snprintf(char *str, size_t n, const char *fmt, ...);
-//int	vsnprintf(char *str, size_t n, const char *fmt, va_list ap);
 #endif
 
 #ifdef _DEBUG
@@ -199,12 +194,20 @@ static inline void W_LoadDehackedLumpsPK3(UINT16 wadnum, boolean mainfile)
 {
 	UINT16 posStart, posEnd;
 
-	posStart = W_CheckNumForFolderStartPK3("Lua/", wadnum, 0);
+	posStart = W_CheckNumForFullNamePK3("Init.lua", wadnum, 0);
 	if (posStart != INT16_MAX)
 	{
-		posEnd = W_CheckNumForFolderEndPK3("Lua/", wadnum, posStart);
-		for (; posStart < posEnd; posStart++)
-			LUA_LoadLump(wadnum, posStart);
+		LUA_LoadLump(wadnum, posStart, true);
+	}
+	else
+	{
+		posStart = W_CheckNumForFolderStartPK3("Lua/", wadnum, 0);
+		if (posStart != INT16_MAX)
+		{
+			posEnd = W_CheckNumForFolderEndPK3("Lua/", wadnum, posStart);
+			for (; posStart < posEnd; posStart++)
+				LUA_LoadLump(wadnum, posStart, true);
+		}
 	}
 
 	posStart = W_CheckNumForFolderStartPK3("SOC/", wadnum, 0);
@@ -236,7 +239,7 @@ static inline void W_LoadDehackedLumps(UINT16 wadnum, boolean mainfile)
 		lumpinfo_t *lump_p = wadfiles[wadnum]->lumpinfo;
 		for (lump = 0; lump < wadfiles[wadnum]->numlumps; lump++, lump_p++)
 			if (memcmp(lump_p->name,"LUA_",4)==0)
-				LUA_LoadLump(wadnum, lump);
+				LUA_LoadLump(wadnum, lump, true);
 	}
 
 	{
@@ -774,6 +777,8 @@ UINT16 W_InitFile(const char *filename, boolean mainfile, boolean startup)
 		if (!memcmp(wadfiles[i]->md5sum, md5sum, 16))
 		{
 			CONS_Alert(CONS_ERROR, M_GetText("%s is already loaded\n"), filename);
+			if (important)
+				packetsizetally -= nameonlylength(filename) + 22;
 			if (handle)
 				fclose(handle);
 			return W_InitFileError(filename, false);
@@ -834,6 +839,15 @@ UINT16 W_InitFile(const char *filename, boolean mainfile, boolean startup)
 	wadfiles[numwadfiles] = wadfile;
 	numwadfiles++; // must come BEFORE W_LoadDehackedLumps, so any addfile called by COM_BufInsertText called by Lua doesn't overwrite what we just loaded
 
+#ifdef HWRENDER
+	// Read shaders from file
+	if (rendermode == render_opengl && (vid_opengl_state == 1))
+	{
+		HWR_ReadShaders(numwadfiles - 1, (type == RET_PK3));
+		HWR_LoadShaders();
+	}
+#endif // HWRENDER
+
 	// TODO: HACK ALERT - Load Lua & SOC stuff right here. I feel like this should be out of this place, but... Let's stick with this for now.
 	switch (wadfile->type)
 	{
@@ -848,7 +862,7 @@ UINT16 W_InitFile(const char *filename, boolean mainfile, boolean startup)
 		DEH_LoadDehackedLumpPwad(numwadfiles - 1, 0, mainfile);
 		break;
 	case RET_LUA:
-		LUA_LoadLump(numwadfiles - 1, 0);
+		LUA_LoadLump(numwadfiles - 1, 0, true);
 		break;
 	default:
 		break;
@@ -884,16 +898,13 @@ void W_InitFileCache(wadfile_t *wadfile, UINT16 numlumps)
   *
   * \param filenames A null-terminated list of files to use.
   */
-void W_InitMultipleFiles(char **filenames, UINT16 mainfiles)
+void W_InitMultipleFiles(char **filenames)
 {
-	// open all the files, load headers, and count lumps
-	numwadfiles = 0;
-
 	// will be realloced as lumps are added
 	for (; *filenames; filenames++)
 	{
 		//CONS_Debug(DBG_SETUP, "Loading %s\n", *filenames);
-		W_InitFile(*filenames, numwadfiles < mainfiles, true);
+		W_InitFile(*filenames, numwadfiles < mainwads, true);
 	}
 }
 
@@ -1383,8 +1394,8 @@ size_t W_ReadLumpHeaderPwad(UINT16 wad, UINT16 lump, void *dest, size_t size, si
 #ifdef NO_PNG_LUMPS
 		{
 			size_t bytesread = fread(dest, 1, size, handle);
-			if (R_IsLumpPNG((UINT8 *)dest, bytesread))
-				W_ThrowPNGError(l->fullname, wadfiles[wad]->filename);
+			if (Picture_IsLumpPNG((UINT8 *)dest, bytesread))
+				Picture_ThrowPNGError(l->fullname, wadfiles[wad]->filename);
 			return bytesread;
 		}
 #else
@@ -1425,8 +1436,8 @@ size_t W_ReadLumpHeaderPwad(UINT16 wad, UINT16 lump, void *dest, size_t size, si
 			Z_Free(rawData);
 			Z_Free(decData);
 #ifdef NO_PNG_LUMPS
-			if (R_IsLumpPNG((UINT8 *)dest, size))
-				W_ThrowPNGError(l->fullname, wadfiles[wad]->filename);
+			if (Picture_IsLumpPNG((UINT8 *)dest, size))
+				Picture_ThrowPNGError(l->fullname, wadfiles[wad]->filename);
 #endif
 			return size;
 #else
@@ -1488,8 +1499,8 @@ size_t W_ReadLumpHeaderPwad(UINT16 wad, UINT16 lump, void *dest, size_t size, si
 			Z_Free(decData);
 
 #ifdef NO_PNG_LUMPS
-			if (R_IsLumpPNG((UINT8 *)dest, size))
-				W_ThrowPNGError(l->fullname, wadfiles[wad]->filename);
+			if (Picture_IsLumpPNG((UINT8 *)dest, size))
+				Picture_ThrowPNGError(l->fullname, wadfiles[wad]->filename);
 #endif
 			return size;
 		}
@@ -1687,10 +1698,10 @@ void *W_CacheSoftwarePatchNumPwad(UINT16 wad, UINT16 lump, INT32 tag)
 
 #ifndef NO_PNG_LUMPS
 		// lump is a png so convert it
-		if (R_IsLumpPNG((UINT8 *)lumpdata, len))
+		if (Picture_IsLumpPNG((UINT8 *)lumpdata, len))
 		{
 			size_t newlen;
-			srcdata = R_PNGToPatch((UINT8 *)lumpdata, len, &newlen);
+			srcdata = Picture_PNGConvert((UINT8 *)lumpdata, PICFMT_PATCH, NULL, NULL, NULL, NULL, len, &newlen, 0);
 			ptr = Z_Realloc(ptr, newlen, tag, &lumpcache[lump]);
 			M_Memcpy(ptr, srcdata, newlen);
 			Z_Free(srcdata);
@@ -1730,11 +1741,11 @@ void *W_CachePatchNumPwad(UINT16 wad, UINT16 lump, INT32 tag)
 
 	grPatch = HWR_GetCachedGLPatchPwad(wad, lump);
 
-	if (grPatch->mipmap->grInfo.data)
+	if (grPatch->mipmap->data)
 	{
 		if (tag == PU_PATCH)
 			tag = PU_HWRCACHE;
-		Z_ChangeTag(grPatch->mipmap->grInfo.data, tag);
+		Z_ChangeTag(grPatch->mipmap->data, tag);
 	}
 	else
 	{
@@ -1858,7 +1869,7 @@ void W_VerifyFileMD5(UINT16 wadfilenum, const char *matchmd5)
 #else
 		I_Error
 #endif
-			(M_GetText("File is corrupt or has been modified: %s (found md5: %s, wanted: %s)\n"), wadfiles[wadfilenum]->filename, actualmd5text, matchmd5);
+			(M_GetText("File is old, is corrupt or has been modified: %s (found md5: %s, wanted: %s)\n"), wadfiles[wadfilenum]->filename, actualmd5text, matchmd5);
 	}
 #endif
 }

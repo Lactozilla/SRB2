@@ -8,7 +8,7 @@
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
 /// \file hw_md2.h
-/// \brief MD2 Handling
+/// \brief MD2 Model Handling
 ///	Inspired from md2.h by Mete Ciragan (mete@swissquake.ch)
 
 #ifndef _HW_MD2_H_
@@ -21,7 +21,7 @@
 #pragma pack()
 #endif
 
-boolean HWR_DrawModel(modelinfo_t *md2, gr_vissprite_t *spr);
+boolean HWR_DrawModel(modelinfo_t *md2, gl_vissprite_t *spr);
 
 #define PLAYERMODELPREFIX "PLAYER"
 

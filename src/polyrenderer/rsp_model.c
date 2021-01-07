@@ -100,7 +100,7 @@ boolean RSP_RenderModel(vissprite_t *spr)
 		INT32 skinnum = 0;
 		INT32 tc = 0, textc = 0;
 
-		skincolors_t skincolor = SKINCOLOR_NONE;
+		skincolornum_t skincolor = SKINCOLOR_NONE;
 		UINT8 *translation = NULL;
 
 #define RESETVIEW { \
@@ -124,9 +124,9 @@ boolean RSP_RenderModel(vissprite_t *spr)
 
 		// texture blending
 		if (mobj->color)
-			skincolor = (skincolors_t)mobj->color;
+			skincolor = (skincolornum_t)mobj->color;
 		else if (mobj->sprite == SPR_PLAY) // Looks like a player, but doesn't have a color? Get rid of green sonic syndrome.
-			skincolor = (skincolors_t)skins[0].prefcolor;
+			skincolor = (skincolornum_t)skins[0].prefcolor;
 
 		// load normal texture
 		if (!md2->texture->rsp_tex.data)
@@ -166,6 +166,11 @@ boolean RSP_RenderModel(vissprite_t *spr)
 
 		// load translated texture
 		textc = -tc;
+
+		// TC_METALSONIC includes an actual skincolor translation, on top of its flashing.
+		if (textc == TC_METALSONIC)
+			skincolor = SKINCOLOR_COBALT;
+
 		if (textc && md2->texture->rsp_blendtex[textc][skincolor].data == NULL)
 			RSP_CreateModelTexture(md2, textc, skincolor);
 
@@ -324,11 +329,10 @@ boolean RSP_RenderModel(vissprite_t *spr)
 		}
 
 #ifdef USE_MODEL_NEXTFRAME
-#define INTERPOLERATION_LIMIT TICRATE/4
-		if (cv_modelinterpolation.value && tics <= durs && tics <= INTERPOLERATION_LIMIT)
+		if (cv_modelinterpolation.value && tics <= durs && tics <= MODEL_INTERPOLATION_LIMIT)
 		{
-			if (durs > INTERPOLERATION_LIMIT)
-				durs = INTERPOLERATION_LIMIT;
+			if (durs > MODEL_INTERPOLATION_LIMIT)
+				durs = MODEL_INTERPOLATION_LIMIT;
 
 			if (mobj->skin && mobj->sprite == SPR_PLAY && md2->model->spr2frames)
 			{
@@ -378,7 +382,6 @@ boolean RSP_RenderModel(vissprite_t *spr)
 					pol = 0.0f;
 			}
 		}
-#undef INTERPOLERATION_LIMIT
 #endif
 
 		// SRB2CBTODO: MD2 scaling support
@@ -640,6 +643,8 @@ boolean RSP_RenderModel(vissprite_t *spr)
 #define SETBRIGHTNESS(brightness,r,g,b) \
 	brightness = (UINT8)(((1063*(UINT16)(r))/5000) + ((3576*(UINT16)(g))/5000) + ((361*(UINT16)(b))/5000))
 
+static colorlookup_t rsp_colorlookup;
+
 static boolean BlendTranslations(UINT16 *px, RGBA_t *sourcepx, RGBA_t *blendpx, INT32 translation)
 {
 	if (translation == TC_BOSS)
@@ -649,20 +654,10 @@ static boolean BlendTranslations(UINT16 *px, RGBA_t *sourcepx, RGBA_t *blendpx, 
 		{
 			// Lactozilla: Invert the colors
 			UINT8 invcol = (255 - sourcepx->s.blue);
-			*px = NearestColor(invcol, invcol, invcol);
+			*px = GetColorLUT(&rsp_colorlookup, invcol, invcol, invcol);
 		}
 		else
-			*px = NearestColor(sourcepx->s.red, sourcepx->s.green, sourcepx->s.blue);
-		*px |= 0xFF00;
-		return true;
-	}
-	else if (translation == TC_METALSONIC)
-	{
-		// Turn everything below a certain blue threshold white
-		if (sourcepx->s.red == 0 && sourcepx->s.green == 0 && sourcepx->s.blue <= 82)
-			*px = NearestColor(255, 255, 255);
-		else
-			*px = NearestColor(sourcepx->s.red, sourcepx->s.green, sourcepx->s.blue);
+			*px = GetColorLUT(&rsp_colorlookup, sourcepx->s.red, sourcepx->s.green, sourcepx->s.blue);
 		*px |= 0xFF00;
 		return true;
 	}
@@ -671,7 +666,7 @@ static boolean BlendTranslations(UINT16 *px, RGBA_t *sourcepx, RGBA_t *blendpx, 
 		if (sourcepx->s.alpha == 0 && blendpx->s.alpha == 0)
 		{
 			// Don't bother with blending the pixel if the alpha of the blend pixel is 0
-			*px = NearestColor(sourcepx->s.red, sourcepx->s.green, sourcepx->s.blue);
+			*px = GetColorLUT(&rsp_colorlookup, sourcepx->s.red, sourcepx->s.green, sourcepx->s.blue);
 		}
 		else
 		{
@@ -691,7 +686,7 @@ static boolean BlendTranslations(UINT16 *px, RGBA_t *sourcepx, RGBA_t *blendpx, 
 				icolor.s.red = sourcepx->s.blue;
 				icolor.s.blue = sourcepx->s.red;
 			}
-			*px = NearestColor(
+			*px = GetColorLUT(&rsp_colorlookup,
 				(ialpha * icolor.s.red + balpha * bcolor.s.red)/255,
 				(ialpha * icolor.s.green + balpha * bcolor.s.green)/255,
 				(ialpha * icolor.s.blue + balpha * bcolor.s.blue)/255
@@ -703,13 +698,13 @@ static boolean BlendTranslations(UINT16 *px, RGBA_t *sourcepx, RGBA_t *blendpx, 
 	else if (translation == TC_ALLWHITE)
 	{
 		// Turn everything white
-		*px = (0xFF00 | NearestColor(255, 255, 255));
+		*px = (0xFF00 | GetColorLUT(&rsp_colorlookup, 255, 255, 255));
 		return true;
 	}
 	return false;
 }
 
-void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, INT32 skincolor)
+void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, skincolornum_t skincolor)
 {
 	modeltexturedata_t *texture = model->texture->base;
 	modeltexturedata_t *blendtexture = model->texture->blend;
@@ -717,9 +712,9 @@ void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, INT32 skincolor)
 	rsp_texture_t *ntex;
 	size_t i, size = 0;
 
-	// vanilla port
-	UINT8 translation[16];
-	memset(translation, 0, sizeof(translation));
+	UINT16 translation[16]; // First the color index
+	UINT8 cutoff[16]; // Brightness cutoff before using the next color
+	UINT8 translen = 0;
 
 	// get texture size
 	if (texture)
@@ -732,6 +727,8 @@ void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, INT32 skincolor)
 
 	ttex = &model->texture->rsp_blendtex[tcnum][skincolor];
 	ntex = &model->texture->rsp_tex;
+
+	InitColorLUT(&rsp_colorlookup, pMasterPalette, false);
 
 	// base texture
 	if (!tcnum)
@@ -749,7 +746,7 @@ void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, INT32 skincolor)
 		ntex->data = Z_Calloc(size * sizeof(UINT16), PU_SOFTPOLY, NULL);
 
 		for (i = 0; i < size; i++)
-			ntex->data[i] = ((image[i].s.alpha << 8) | NearestColor(image[i].s.red, image[i].s.green, image[i].s.blue));
+			ntex->data[i] = ((image[i].s.alpha << 8) | GetColorLUT(&rsp_colorlookup, image[i].s.red, image[i].s.green, image[i].s.blue));
 	}
 	else
 	{
@@ -770,9 +767,38 @@ void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, INT32 skincolor)
 		ttex->height = texture->height;
 		ttex->data = Z_Calloc(size * sizeof(UINT16), PU_SOFTPOLY, NULL);
 
-		blendcolor = V_GetMasterColor(0); // initialize
-		if (skincolor != SKINCOLOR_NONE)
-			memcpy(&translation, &Color_Index[skincolor - 1], 16);
+		blendcolor = V_GetColor(0); // initialize
+		memset(translation, 0, sizeof(translation));
+		memset(cutoff, 0, sizeof(cutoff));
+
+		if (skincolor != SKINCOLOR_NONE && skincolor < numskincolors)
+		{
+			UINT8 numdupes = 1;
+
+			translation[translen] = skincolors[skincolor].ramp[0];
+			cutoff[translen] = 255;
+
+			for (i = 1; i < 16; i++)
+			{
+				if (translation[translen] == skincolors[skincolor].ramp[i])
+				{
+					numdupes++;
+					continue;
+				}
+
+				if (translen > 0)
+				{
+					cutoff[translen] = cutoff[translen-1] - (256 / (16 / numdupes));
+				}
+
+				numdupes = 1;
+				translen++;
+
+				translation[translen] = (UINT16)skincolors[skincolor].ramp[i];
+			}
+
+			translen++;
+		}
 
 		for (i = 0; i < size; i++)
 		{
@@ -783,13 +809,17 @@ void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, INT32 skincolor)
 				ttex->data[i] = 0x0000;
 			else if (!BlendTranslations(&ttex->data[i], &image[i], &blendimage[i], -tcnum))
 			{
+				// All settings that use skincolors!
 				UINT16 brightness;
+				INT32 r = image[i].s.red, g = image[i].s.green, b = image[i].s.blue;
+				INT32 tempcolor;
 
+				if (translen <= 0)
+					goto skippixel;
+
+				// Don't bother with blending the pixel if the alpha of the blend pixel is 0
 				if (blendimage[i].s.alpha == 0)
-				{
-					ttex->data[i] = ntex->data[i];
-					continue;
-				}
+					goto skippixel; // for metal sonic blend
 				else
 				{
 					SETBRIGHTNESS(brightness,blendimage[i].s.red,blendimage[i].s.green,blendimage[i].s.blue);
@@ -799,33 +829,52 @@ void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, INT32 skincolor)
 				// (Me splitting this into a function didn't work, so I had to ruin this entire function's groove...)
 				{
 					RGBA_t nextcolor;
-					UINT8 firsti, secondi, mul;
-					UINT32 r, g, b;
+					UINT8 firsti, secondi, mul, mulmax, j;
 
-					// Just convert brightness to a skincolor value, use remainder to find the gradient multipler
-					firsti = ((UINT8)(255-brightness) / 16);
-					secondi = firsti+1;
-					mul = ((UINT8)(255-brightness) % 16);
+					// Just convert brightness to a skincolor value, use distance to next position to find the gradient multipler
+					firsti = 0;
 
-					blendcolor = V_GetMasterColor(translation[firsti]);
-
-					if (mul > 0 // If it's 0, then we only need the first color.
-						&& translation[firsti] != translation[secondi]) // Some colors have duplicate colors in a row, so let's just save the process
+					for (j = 1; j < translen; j++)
 					{
-						if (secondi == 16) // blend to black
-							nextcolor = V_GetMasterColor(31);
+						if (brightness >= cutoff[j])
+							break;
+						firsti = j;
+					}
+
+					secondi = firsti+1;
+
+					mulmax = cutoff[firsti];
+					if (secondi < translen)
+						mulmax -= cutoff[secondi];
+
+					mul = cutoff[firsti] - brightness;
+
+					blendcolor = V_GetColor(translation[firsti]);
+
+					if (secondi >= translen)
+						mul = 0;
+
+					if (mul > 0) // If it's 0, then we only need the first color.
+					{
+#if 0
+						if (secondi >= translen)
+						{
+							// blend to black
+							nextcolor = V_GetColor(31);
+						}
 						else
-							nextcolor = V_GetMasterColor(translation[secondi]);
+#endif
+							nextcolor = V_GetColor(translation[secondi]);
 
 						// Find difference between points
-						r = (UINT32)(nextcolor.s.red - blendcolor.s.red);
-						g = (UINT32)(nextcolor.s.green - blendcolor.s.green);
-						b = (UINT32)(nextcolor.s.blue - blendcolor.s.blue);
+						r = (INT32)(nextcolor.s.red - blendcolor.s.red);
+						g = (INT32)(nextcolor.s.green - blendcolor.s.green);
+						b = (INT32)(nextcolor.s.blue - blendcolor.s.blue);
 
 						// Find the gradient of the two points
-						r = ((mul * r) / 16);
-						g = ((mul * g) / 16);
-						b = ((mul * b) / 16);
+						r = ((mul * r) / mulmax);
+						g = ((mul * g) / mulmax);
+						b = ((mul * b) / mulmax);
 
 						// Add gradient value to color
 						blendcolor.s.red += r;
@@ -835,23 +884,33 @@ void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, INT32 skincolor)
 				}
 
 				// Color strength depends on image alpha
+				tempcolor = ((image[i].s.red * (255-blendimage[i].s.alpha)) / 255) + ((blendcolor.s.red * blendimage[i].s.alpha) / 255);
+				tempcolor = min(255, tempcolor);
+				r = (UINT8)tempcolor;
+
+				tempcolor = ((image[i].s.green * (255-blendimage[i].s.alpha)) / 255) + ((blendcolor.s.green * blendimage[i].s.alpha) / 255);
+				tempcolor = min(255, tempcolor);
+				g = (UINT8)tempcolor;
+
+				tempcolor = ((image[i].s.blue * (255-blendimage[i].s.alpha)) / 255) + ((blendcolor.s.blue * blendimage[i].s.alpha) / 255);
+				tempcolor = min(255, tempcolor);
+				b = (UINT8)tempcolor;
+
+skippixel:
+
+				// *Now* we can do Metal Sonic's flashing
+				if (-tcnum == TC_METALSONIC)
 				{
-					INT32 tempcolor;
-					UINT8 red, green, blue;
-
-					tempcolor = ((image[i].s.red * (255-blendimage[i].s.alpha)) / 255) + ((blendcolor.s.red * blendimage[i].s.alpha) / 255);
-					tempcolor = min(255, tempcolor);
-					red = (UINT8)tempcolor;
-
-					tempcolor = ((image[i].s.green * (255-blendimage[i].s.alpha)) / 255) + ((blendcolor.s.green * blendimage[i].s.alpha) / 255);
-					tempcolor = min(255, tempcolor);
-					green = (UINT8)tempcolor;
-
-					tempcolor = ((image[i].s.blue * (255-blendimage[i].s.alpha)) / 255) + ((blendcolor.s.blue * blendimage[i].s.alpha) / 255);
-					tempcolor = min(255, tempcolor);
-					blue = (UINT8)tempcolor;
-					ttex->data[i] = ((image[i].s.alpha << 8) | NearestColor(red, green, blue));
+					// Blend dark blue into white
+					if (image[i].s.alpha > 0 && r == 0 && g == 0 && b < 255 && b > 31)
+					{
+						// Sal: Invert non-blue
+						r = g = (255 - b);
+						b = 255;
+					}
 				}
+
+				ttex->data[i] = ((image[i].s.alpha << 8) | GetColorLUT(&rsp_colorlookup, r, g, b));
 			}
 		}
 	}

@@ -220,12 +220,12 @@
     <ClInclude Include="..\hardware\hw3dsdrv.h" />
     <ClInclude Include="..\hardware\hw3sound.h" />
     <ClInclude Include="..\hardware\hws_data.h" />
+    <ClInclude Include="..\hardware\hw_batching.h" />
     <ClInclude Include="..\hardware\hw_clip.h" />
     <ClInclude Include="..\hardware\hw_data.h" />
     <ClInclude Include="..\hardware\hw_defs.h" />
     <ClInclude Include="..\hardware\hw_dll.h" />
     <ClInclude Include="..\hardware\hw_drv.h" />
-    <ClInclude Include="..\hardware\hw_glide.h" />
     <ClInclude Include="..\hardware\hw_glob.h" />
     <ClInclude Include="..\hardware\hw_light.h" />
     <ClInclude Include="..\hardware\hw_main.h" />
@@ -252,6 +252,7 @@
     <ClInclude Include="..\lzf.h" />
     <ClInclude Include="..\md5.h" />
     <ClInclude Include="..\mserv.h" />
+    <ClInclude Include="..\http-mserv.h" />
     <ClInclude Include="..\m_aatree.h" />
     <ClInclude Include="..\m_anigif.h" />
     <ClInclude Include="..\m_argv.h" />
@@ -282,14 +283,15 @@
     <ClInclude Include="..\r_draw.h" />
     <ClInclude Include="..\r_local.h" />
     <ClInclude Include="..\r_main.h" />
+    <ClInclude Include="..\r_picformats.h" />
     <ClInclude Include="..\r_plane.h" />
-    <ClInclude Include="..\r_patch.h" />
     <ClInclude Include="..\r_portal.h" />
     <ClInclude Include="..\r_segs.h" />
     <ClInclude Include="..\r_skins.h" />
     <ClInclude Include="..\r_sky.h" />
     <ClInclude Include="..\r_splats.h" />
     <ClInclude Include="..\r_state.h" />
+    <ClInclude Include="..\r_textures.h" />
     <ClInclude Include="..\r_things.h" />
     <ClInclude Include="..\screen.h" />
     <ClInclude Include="..\sounds.h" />
@@ -339,6 +341,7 @@
     <ClCompile Include="..\blua\lfunc.c" />
     <ClCompile Include="..\blua\lgc.c" />
     <ClCompile Include="..\blua\linit.c" />
+    <ClCompile Include="..\blua\liolib.c" />
     <ClCompile Include="..\blua\llex.c" />
     <ClCompile Include="..\blua\lmem.c" />
     <ClCompile Include="..\blua\lobject.c" />
@@ -370,6 +373,7 @@
     <ClCompile Include="..\g_game.c" />
     <ClCompile Include="..\g_input.c" />
     <ClCompile Include="..\hardware\hw3sound.c" />
+    <ClCompile Include="..\hardware\hw_batching.c" />
     <ClCompile Include="..\hardware\hw_bsp.c" />
     <ClCompile Include="..\hardware\hw_cache.c" />
     <ClCompile Include="..\hardware\hw_clip.c" />
@@ -377,7 +381,6 @@
     <ClCompile Include="..\hardware\hw_light.c" />
     <ClCompile Include="..\hardware\hw_main.c" />
     <ClCompile Include="..\hardware\hw_md2.c" />
-    <ClCompile Include="..\hardware\hw_trick.c" />
     <ClCompile Include="..\hardware\r_opengl\r_opengl.c" />
     <ClCompile Include="..\hu_stuff.c" />
     <ClCompile Include="..\info.c" />
@@ -401,6 +404,7 @@
     <ClCompile Include="..\lzf.c" />
     <ClCompile Include="..\md5.c" />
     <ClCompile Include="..\mserv.c" />
+    <ClCompile Include="..\http-mserv.c" />
     <ClCompile Include="..\m_aatree.c" />
     <ClCompile Include="..\m_anigif.c" />
     <ClCompile Include="..\m_argv.c" />
@@ -442,13 +446,14 @@
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\r_main.c" />
+    <ClCompile Include="..\r_picformats.c" />
     <ClCompile Include="..\r_plane.c" />
-	<ClCompile Include="..\r_patch.c" />
     <ClCompile Include="..\r_portal.c" />
     <ClCompile Include="..\r_segs.c" />
     <ClCompile Include="..\r_skins.c" />
     <ClCompile Include="..\r_sky.c" />
     <ClCompile Include="..\r_splats.c" />
+    <ClCompile Include="..\r_textures.c" />
     <ClCompile Include="..\r_things.c" />
     <ClCompile Include="..\r_md2load.c" />
     <ClCompile Include="..\r_md3load.c" />

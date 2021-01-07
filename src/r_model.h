@@ -25,6 +25,7 @@ extern consvar_t cv_modelsfolder;
 
 #define USE_MODEL_NEXTFRAME
 #define MODEL_INTERPOLATION_FLAG "+i"
+#define MODEL_INTERPOLATION_LIMIT TICRATE/4
 
 #define MODELSFOLDER "models"
 #define MODELSFILE "models.dat"
@@ -70,6 +71,11 @@ typedef struct mesh_s
 	int numTriangles;
 
 	float *uvs;
+	// if uv adjustment is needed, uvs is changed to point to adjusted ones and
+	// this one retains the originals
+	// note: this member has been added with the assumption that models are never freed.
+	// (UnloadModel is called by nobody at the time of writing.)
+	float *originaluvs;
 	float *lightuvs;
 
 	int numFrames;
@@ -105,6 +111,15 @@ typedef struct model_s
 	char *framenames;
 	boolean interpolate[256];
 	modelspr2frames_t *spr2frames;
+
+	// the max_s and max_t values that the uvs are currently adjusted to
+	// (if a sprite is used as a texture)
+	float max_s;
+	float max_t;
+	// These are the values that the uvs in the VBO have been adjusted to.
+	// If they are not same as max_s and max_t, then the VBO won't be used.
+	float vbo_max_s;
+	float vbo_max_t;
 } model_t;
 
 typedef struct
@@ -126,7 +141,7 @@ typedef struct
 #endif
 #ifdef POLYRENDERER
 	rsp_texture_t      rsp_tex;
-	rsp_texture_t      rsp_blendtex[8][MAXTRANSLATIONS];
+	rsp_texture_t      rsp_blendtex[8][MAXSKINCOLORS];
 #endif
 } modeltexture_t;
 
@@ -167,6 +182,7 @@ void Model_Unload(model_t *model);
 
 // Model rendering
 modelinfo_t *Model_IsAvailable(spritenum_t spritenum, skin_t *skin);
+void Model_AdjustTextureCoords(model_t *model, float max_s, float max_t);
 boolean Model_AllowRendering(mobj_t *mobj);
 boolean Model_CanInterpolate(mobj_t *mobj, model_t *model);
 boolean Model_CanInterpolateSprite2(modelspr2frames_t *spr2frame);

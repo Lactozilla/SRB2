@@ -22,7 +22,6 @@
 
 #ifdef HWRENDER
 #include "hardware/hw_md2.h"
-#include "hardware/hw_glide.h"
 #endif
 
 #include "d_main.h"
@@ -323,7 +322,7 @@ boolean Model_LoadTexture(modelinfo_t *model)
 		if (model->texture->grpatch)
 		{
 			grpatch = model->texture->grpatch;
-			Z_Free(grpatch->mipmap->grInfo.data);
+			Z_Free(grpatch->mipmap->data);
 		}
 		else
 		{
@@ -379,16 +378,16 @@ boolean Model_LoadTexture(modelinfo_t *model)
 #ifdef HWRENDER
 	if (rendermode == render_opengl)
 	{
-		if (!grpatch->mipmap->downloaded && !grpatch->mipmap->grInfo.data)
+		if (!grpatch->mipmap->downloaded && !grpatch->mipmap->data)
 		{
 			// texture is RGBA, right??
-			Z_Calloc(texture->size, PU_HWRMODELTEXTURE, &grpatch->mipmap->grInfo.data);
+			Z_Calloc(texture->size, PU_HWRMODELTEXTURE, &grpatch->mipmap->data);
 
 			// copy texture
-			image = grpatch->mipmap->grInfo.data;
+			image = grpatch->mipmap->data;
 			M_Memcpy(image, texture->data, texture->size);
 
-			grpatch->mipmap->grInfo.format = GR_RGBA;
+			grpatch->mipmap->format = GL_TEXFMT_RGBA;
 			grpatch->mipmap->downloaded = 0;
 			grpatch->mipmap->flags = 0;
 
@@ -404,13 +403,6 @@ boolean Model_LoadTexture(modelinfo_t *model)
 				V_CubeApply(&image->s.red, &image->s.green, &image->s.blue);
 				image++;
 			}
-
-#ifdef GLIDE_API_COMPATIBILITY
-			// not correct!
-			grpatch->mipmap->grInfo.smallLodLog2 = GR_LOD_LOG2_256;
-			grpatch->mipmap->grInfo.largeLodLog2 = GR_LOD_LOG2_256;
-			grpatch->mipmap->grInfo.aspectRatioLog2 = GR_ASPECT_LOG2_1x1;
-#endif
 		}
 		return true;
 	}
@@ -459,7 +451,7 @@ boolean Model_LoadBlendTexture(modelinfo_t *model)
 		if (model->texture->blendgrpatch)
 		{
 			grpatch = model->texture->blendgrpatch;
-			Z_Free(grpatch->mipmap->grInfo.data);
+			Z_Free(grpatch->mipmap->data);
 		}
 		else
 		{
@@ -516,16 +508,16 @@ boolean Model_LoadBlendTexture(modelinfo_t *model)
 #ifdef HWRENDER
 	if (rendermode == render_opengl)
 	{
-		if (!grpatch->mipmap->downloaded && !grpatch->mipmap->grInfo.data)
+		if (!grpatch->mipmap->downloaded && !grpatch->mipmap->data)
 		{
 			// texture is RGBA, right??
-			Z_Calloc(texture->size, PU_HWRMODELTEXTURE, &grpatch->mipmap->grInfo.data);
+			Z_Calloc(texture->size, PU_HWRMODELTEXTURE, &grpatch->mipmap->data);
 
 			// copy texture
-			image = grpatch->mipmap->grInfo.data;
+			image = grpatch->mipmap->data;
 			M_Memcpy(image, texture->data, texture->size);
 
-			grpatch->mipmap->grInfo.format = GR_RGBA;
+			grpatch->mipmap->format = GL_TEXFMT_RGBA;
 			grpatch->mipmap->downloaded = 0;
 			grpatch->mipmap->flags = 0;
 
@@ -533,13 +525,6 @@ boolean Model_LoadBlendTexture(modelinfo_t *model)
 			grpatch->height = (INT16)texture->height;
 			grpatch->mipmap->width = (UINT16)texture->width;
 			grpatch->mipmap->height = (UINT16)texture->height;
-
-#ifdef GLIDE_API_COMPATIBILITY
-			// not correct!
-			grpatch->mipmap->grInfo.smallLodLog2 = GR_LOD_LOG2_256;
-			grpatch->mipmap->grInfo.largeLodLog2 = GR_LOD_LOG2_256;
-			grpatch->mipmap->grInfo.aspectRatioLog2 = GR_ASPECT_LOG2_1x1;
-#endif
 		}
 
 		Z_Free(filename);

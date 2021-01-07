@@ -164,7 +164,7 @@ UINT16 W_InitFile(const char *filename, boolean mainfile, boolean startup);
 void W_InitFileCache(wadfile_t *wadfile, UINT16 numlumps);
 
 // W_InitMultipleFiles exits if a file was not found, but not if all is okay.
-void W_InitMultipleFiles(char **filenames, UINT16 mainfiles);
+void W_InitMultipleFiles(char **filenames);
 
 const char *W_CheckNameForNumPwad(UINT16 wad, UINT16 lump);
 const char *W_CheckNameForNum(lumpnum_t lumpnum);
