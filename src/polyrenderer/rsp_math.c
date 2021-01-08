@@ -1,6 +1,7 @@
 // SONIC ROBO BLAST 2
 //-----------------------------------------------------------------------------
-// Copyright (C) 2019 by Vinícius "Arkus-Kotan" Telésforo.
+// Copyright (C) 2019-2021 by Jaime Ita Passos.
+// Copyright (C) 2019 by "Arkus-Kotan".
 // Copyright (C) 2017 by Krzysztof Kondrak.
 //
 // This program is free software distributed under the

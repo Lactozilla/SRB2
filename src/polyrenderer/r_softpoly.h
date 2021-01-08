@@ -1,11 +1,7 @@
 // SONIC ROBO BLAST 2
 //-----------------------------------------------------------------------------
-// Copyright (C) 1993-1996 by id Software, Inc.
-// Copyright (C) 1998-2000 by DooM Legacy Team.
-// Copyright (C) 1999-2018 by Sonic Team Junior.
-// Copyright (C) 2019-2020 by Jaime "Lactozilla" Passos.
-// Copyright (C) 2019 by Vinícius "Arkus-Kotan" Telésforo.
-// Copyright (C) 2017 by Krzysztof Kondrak.
+// Copyright (C) 2019-2021 by Jaime Ita Passos.
+// Copyright (C) 2019 by "Arkus-Kotan".
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
