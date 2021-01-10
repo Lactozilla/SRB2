@@ -39,11 +39,13 @@ void R_AddSpriteDefs(UINT16 wadnum);
 // vars for R_DrawMaskedColumn
 extern INT16 *mfloorclip;
 extern INT16 *mceilingclip;
+
 #ifdef POLYRENDERER
 extern INT16 *rsp_mfloorclip;
 extern INT16 *rsp_mceilingclip;
 extern INT32 rsp_portalclip[2];
 #endif
+
 extern fixed_t spryscale;
 extern fixed_t sprtopscreen;
 extern fixed_t sprbotscreen;

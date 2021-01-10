@@ -266,7 +266,7 @@ ifdef NO_POLYRENDERER
 	OPTS+=-DNO_POLYRENDERER
 else
 	OPTS+=-DPOLYRENDERER
-	OBJS+=$(OBJDIR)/r_softpoly.o $(OBJDIR)/rsp_spans.o $(OBJDIR)/rsp_draw.o \
+	OBJS+=$(OBJDIR)/r_softpoly.o $(OBJDIR)/small3dlib.o $(OBJDIR)/rsp_draw.o \
 		 $(OBJDIR)/rsp_math.o $(OBJDIR)/rsp_tris.o $(OBJDIR)/rsp_model.o
 endif
 

@@ -19,9 +19,8 @@ extern char modelsfile[64];
 extern char modelsfolder[64];
 
 extern consvar_t cv_models;
-extern consvar_t cv_modelinterpolation;
-extern consvar_t cv_modelsfile;
-extern consvar_t cv_modelsfolder;
+extern consvar_t cv_modelinterpolation, cv_modellighting;
+extern consvar_t cv_modelsfile, cv_modelsfolder;
 
 #define USE_MODEL_NEXTFRAME
 #define MODEL_INTERPOLATION_FLAG "+i"

@@ -49,6 +49,7 @@ static void CV_ModelsFolder_OnChange(void);
 
 consvar_t cv_models = {"models", "Off", CV_CALL|CV_SAVE|CV_NOINIT, CV_OnOff, CV_Models_OnChange, 0, NULL, NULL, 0, 0, NULL};
 consvar_t cv_modelinterpolation = {"modelinterpolation", "Sometimes", CV_SAVE, modelinterpolation_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
+consvar_t cv_modellighting = {"modellighting", "Off", CV_SAVE, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
 consvar_t cv_modelsfile = {"modelsfile", "models.dat", CV_CALL|CV_SAVE, NULL, CV_ModelsFile_OnChange, 0, NULL, NULL, 0, 0, NULL};
 consvar_t cv_modelsfolder = {"modelsfolder", "models", CV_CALL|CV_SAVE, NULL, CV_ModelsFolder_OnChange, 0, NULL, NULL, 0, 0, NULL};
 
@@ -86,6 +87,7 @@ void Model_Init(void)
 {
 	CV_RegisterVar(&cv_modelsfolder);
 	CV_RegisterVar(&cv_modelsfile);
+	CV_RegisterVar(&cv_modellighting);
 	CV_RegisterVar(&cv_modelinterpolation);
 	CV_RegisterVar(&cv_models);
 

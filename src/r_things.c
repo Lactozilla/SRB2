@@ -649,6 +649,7 @@ static vissprite_t *R_NewVisSprite(void)
 //
 INT16 *mfloorclip;
 INT16 *mceilingclip;
+
 #ifdef POLYRENDERER
 INT16 *rsp_mfloorclip;
 INT16 *rsp_mceilingclip;

@@ -530,15 +530,17 @@ if(${SRB2_CONFIG_POLYRENDERER})
 	add_definitions(-DSPOLYRENDERER)
 	set(SRB2_POLYRENDERER_SOURCES
 		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/r_softpoly.c
+		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/small3dlib.c
 		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_draw.c
 		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_math.c
 		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_model.c
-		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_spans.c
 		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_tris.c
 	)
 
 	set (SRB2_POLYRENDERER_HEADERS
 		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/r_softpoly.h
+		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/small3dlib.h
+		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_types.h
 	)
 
 endif()

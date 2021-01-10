@@ -37,13 +37,45 @@
 
 // Macros to improve code readability
 #define MD3_XYZ_SCALE   (1.0f / 64.0f)
+#define NORMAL_SCALE    (1.0f / 256.0f)
+
 #define VERTEX_OFFSET   ((i * 9) + (j * 3))		/* (i * 9) = (XYZ coords * vertex count) */
+#define NORMAL_OFFSET   ((i * 9) + (j * 3))		/* (i * 9) = (XYZ coords * vertex count) */
 #define UV_OFFSET       ((i * 6) + (j * 2))		/* (i * 6) = (UV coords * vertex count) */
 
 static fpquaternion_t *modelquaternion = NULL;
+S3L_Transform3D *modeltransform = NULL;
 
 boolean RSP_RenderModel(vissprite_t *spr)
 {
+	fpvector4_t modelvec;
+	rsp_texture_t *texture, sprtex;
+	rsp_spritetexture_t *sprtexp;
+
+	INT32 durs, tics;
+	INT32 modelz;
+	float z1, z2;
+	float finalscale;
+	float pol = 0.0f;
+
+	boolean vflip, papersprite;
+	angle_t ang, rollangle = 0;
+
+	fpquaternion_t rollquaternion;
+	fpvector4_t rolltranslation;
+
+	spritedef_t *sprdef;
+	spriteframe_t *sprframe;
+#ifdef ROTSPRITE
+	spriteinfo_t *sprinfo;
+#endif
+
+	INT32 skinnum = 0;
+	INT32 tc = 0, textc = 0;
+
+	skincolornum_t skincolor = SKINCOLOR_NONE;
+	UINT8 *translation = NULL;
+
 	INT32 frameIndex = 0;
 	INT32 nextFrameIndex = -1;
 	INT32 mod;
@@ -74,556 +106,609 @@ boolean RSP_RenderModel(vissprite_t *spr)
 		M_Memcpy(modelquaternion, &quat, sizeof(fpquaternion_t));
 	}
 
-	// Look at R_ProjectSprite for more
-	{
-		fpvector4_t modelvec;
-		rsp_texture_t *texture, sprtex;
-		rsp_spritetexture_t *sprtexp;
-		INT32 durs = mobj->state->tics;
-		INT32 tics = mobj->tics;
-		boolean vflip = (!(mobj->eflags & MFE_VERTICALFLIP) != !(mobj->frame & FF_VERTICALFLIP));
-		boolean papersprite = (mobj->frame & FF_PAPERSPRITE);
-		angle_t ang;
-		angle_t rollangle = 0;
-		fpquaternion_t rollquaternion;
-		fpvector4_t rolltranslation;
-		spritedef_t *sprdef;
-		spriteframe_t *sprframe;
-#ifdef ROTSPRITE
-		spriteinfo_t *sprinfo;
-#endif
-		float finalscale;
-		float pol = 0.0f;
-		INT32 skinnum = 0;
-		INT32 tc = 0, textc = 0;
-
-		skincolornum_t skincolor = SKINCOLOR_NONE;
-		UINT8 *translation = NULL;
-
 #define RESETVIEW { \
 	if (rsp_maskdraw) \
 		RSP_RestoreViewpoint(); \
 }
 
-		md2 = (modelinfo_t *)spr->model;
-		if (!md2)
-		{
-			RESETVIEW
-			return false;
-		}
+	md2 = (modelinfo_t *)spr->model;
+	if (!md2)
+	{
+		RESETVIEW
+		return false;
+	}
 
-		// Lactozilla: Disallow certain models from rendering
-		if (!Model_AllowRendering(mobj))
-		{
-			RESETVIEW
-			return false;
-		}
+	// Lactozilla: Disallow certain models from rendering
+	if (!Model_AllowRendering(mobj))
+	{
+		RESETVIEW
+		return false;
+	}
 
-		// texture blending
-		if (mobj->color)
-			skincolor = (skincolornum_t)mobj->color;
-		else if (mobj->sprite == SPR_PLAY) // Looks like a player, but doesn't have a color? Get rid of green sonic syndrome.
-			skincolor = (skincolornum_t)skins[0].prefcolor;
+	// texture blending
+	if (mobj->color)
+		skincolor = (skincolornum_t)mobj->color;
+	else if (mobj->sprite == SPR_PLAY) // Looks like a player, but doesn't have a color? Get rid of green sonic syndrome.
+		skincolor = (skincolornum_t)skins[0].prefcolor;
 
-		// load normal texture
-		if (!md2->texture->rsp_tex.data)
-		{
-			if (mobj->skin)
-				skinnum = (skin_t*)mobj->skin-skins;
-			Model_LoadTexture(md2);
-			Model_LoadBlendTexture(md2);
-		}
+	// load normal texture
+	if (!md2->texture->rsp_tex.data)
+	{
+		if (mobj->skin)
+			skinnum = (skin_t*)mobj->skin-skins;
+		Model_LoadTexture(md2);
+		Model_LoadBlendTexture(md2);
+	}
 
-		// set translation
-		if ((mobj->flags & (MF_ENEMY|MF_BOSS)) && (mobj->flags2 & MF2_FRET) && !(mobj->flags & MF_GRENADEBOUNCE) && (leveltime & 1)) // Bosses "flash"
-		{
-			if (mobj->type == MT_CYBRAKDEMON)
-				tc = TC_ALLWHITE;
-			else if (mobj->type == MT_METALSONIC_BATTLE)
-				tc = TC_METALSONIC;
-			else
-				tc = TC_BOSS;
-		}
-		else if (mobj->colorized)
+	// set translation
+	if ((mobj->flags & (MF_ENEMY|MF_BOSS)) && (mobj->flags2 & MF2_FRET) && !(mobj->flags & MF_GRENADEBOUNCE) && (leveltime & 1)) // Bosses "flash"
+	{
+		if (mobj->type == MT_CYBRAKDEMON)
+			tc = TC_ALLWHITE;
+		else if (mobj->type == MT_METALSONIC_BATTLE)
+			tc = TC_METALSONIC;
+		else
+			tc = TC_BOSS;
+	}
+	else if (mobj->colorized)
+		translation = R_GetTranslationColormap(TC_RAINBOW, mobj->color, GTC_CACHE);
+	else if (mobj->player && mobj->player->dashmode >= DASHMODE_THRESHOLD
+		&& (mobj->player->charflags & SF_DASHMODE)
+		&& ((leveltime/2) & 1))
+	{
+		if (mobj->player->charflags & SF_MACHINE)
+			tc = TC_DASHMODE;
+		else
 			translation = R_GetTranslationColormap(TC_RAINBOW, mobj->color, GTC_CACHE);
-		else if (mobj->player && mobj->player->dashmode >= DASHMODE_THRESHOLD
-			&& (mobj->player->charflags & SF_DASHMODE)
-			&& ((leveltime/2) & 1))
-		{
-			if (mobj->player->charflags & SF_MACHINE)
-				tc = TC_DASHMODE;
-			else
-				translation = R_GetTranslationColormap(TC_RAINBOW, mobj->color, GTC_CACHE);
-		}
-		else
-		{
-			if (mobj->color)
-				tc = TC_DEFAULT; // intentional
-		}
+	}
+	else
+	{
+		if (mobj->color)
+			tc = TC_DEFAULT; // intentional
+	}
 
-		// load translated texture
-		textc = -tc;
+	// load translated texture
+	textc = -tc;
 
-		// TC_METALSONIC includes an actual skincolor translation, on top of its flashing.
-		if (textc == TC_METALSONIC)
-			skincolor = SKINCOLOR_COBALT;
+	// TC_METALSONIC includes an actual skincolor translation, on top of its flashing.
+	if (textc == TC_METALSONIC)
+		skincolor = SKINCOLOR_COBALT;
 
-		if (textc && md2->texture->rsp_blendtex[textc][skincolor].data == NULL)
-			RSP_CreateModelTexture(md2, textc, skincolor);
+	if (textc && md2->texture->rsp_blendtex[textc][skincolor].data == NULL)
+		RSP_CreateModelTexture(md2, textc, skincolor);
 
-		// use corresponding texture for this model
-		if (md2->texture->rsp_blendtex[textc][skincolor].data != NULL)
-			texture = &md2->texture->rsp_blendtex[textc][skincolor];
-		else
-			texture = &md2->texture->rsp_tex;
+	// use corresponding texture for this model
+	if (md2->texture->rsp_blendtex[textc][skincolor].data != NULL)
+		texture = &md2->texture->rsp_blendtex[textc][skincolor];
+	else
+		texture = &md2->texture->rsp_tex;
 
-		if (mobj->skin && mobj->sprite == SPR_PLAY)
-		{
-			sprdef = &((skin_t *)mobj->skin)->sprites[mobj->sprite2];
+	if (mobj->skin && mobj->sprite == SPR_PLAY)
+	{
+		sprdef = &((skin_t *)mobj->skin)->sprites[mobj->sprite2];
 #ifdef ROTSPRITE
-			sprinfo = &((skin_t *)mobj->skin)->sprinfo[mobj->sprite2];
+		sprinfo = &((skin_t *)mobj->skin)->sprinfo[mobj->sprite2];
 #endif
+	}
+	else
+	{
+		sprdef = &sprites[mobj->sprite];
+#ifdef ROTSPRITE
+		sprinfo = &spriteinfo[mobj->sprite];
+#endif
+	}
+
+	sprframe = &sprdef->spriteframes[mobj->frame & FF_FRAMEMASK];
+	papersprite = (mobj->frame & FF_PAPERSPRITE);
+
+	if (!texture->data)
+	{
+		unsigned rot;
+		UINT8 flip;
+		lumpcache_t *lumpcache;
+		lumpnum_t lumpnum;
+		UINT16 wad, lump;
+
+		if (sprframe->rotate != SRF_SINGLE || papersprite)
+			ang = R_PointToAngle (mobj->x, mobj->y) - (mobj->player ? mobj->player->drawangle : mobj->angle);
+
+		if (sprframe->rotate == SRF_SINGLE)
+		{
+			// use single rotation for all views
+			rot = 0;                        //Fab: for vis->patch below
+			flip = sprframe->flip; // Will only be 0x00 or 0xFF
 		}
 		else
 		{
-			sprdef = &sprites[mobj->sprite];
-#ifdef ROTSPRITE
-			sprinfo = &spriteinfo[mobj->sprite];
-#endif
+			// choose a different rotation based on player view
+			if ((sprframe->rotate & SRF_RIGHT) && (ang < ANGLE_180)) // See from right
+				rot = 6; // F7 slot
+			else if ((sprframe->rotate & SRF_LEFT) && (ang >= ANGLE_180)) // See from left
+				rot = 2; // F3 slot
+			else // Normal behaviour
+				rot = (ang+ANGLE_202h)>>29;
+
+			flip = sprframe->flip & (1<<rot);
 		}
 
-		sprframe = &sprdef->spriteframes[mobj->frame & FF_FRAMEMASK];
+		// get rsp_texture
+		lumpnum = sprframe->lumppat[rot];
+		wad = WADFILENUM(lumpnum);
+		lump = LUMPNUM(lumpnum);
 
-		if (!texture->data)
+		if (!wadfiles[wad]->patchcache)
 		{
-			unsigned rot;
-			UINT8 flip;
-			lumpcache_t *lumpcache;
-			lumpnum_t lumpnum;
-			UINT16 wad, lump;
+			RESETVIEW
+			return false;
+		}
 
-			if (sprframe->rotate != SRF_SINGLE || papersprite)
-				ang = R_PointToAngle (mobj->x, mobj->y) - (mobj->player ? mobj->player->drawangle : mobj->angle);
+		lumpcache = wadfiles[wad]->patchcache->software;
+		if (!lumpcache[lump])
+		{
+			RESETVIEW
+			return false;
+		}
 
-			if (sprframe->rotate == SRF_SINGLE)
-			{
-				// use single rotation for all views
-				rot = 0;                        //Fab: for vis->patch below
-				flip = sprframe->flip; // Will only be 0x00 or 0xFF
-			}
-			else
-			{
-				// choose a different rotation based on player view
-				if ((sprframe->rotate & SRF_RIGHT) && (ang < ANGLE_180)) // See from right
-					rot = 6; // F7 slot
-				else if ((sprframe->rotate & SRF_LEFT) && (ang >= ANGLE_180)) // See from left
-					rot = 2; // F3 slot
-				else // Normal behaviour
-					rot = (ang+ANGLE_202h)>>29;
+		sprtexp = lumpcache[lump];
+		sprtexp += rot;
+		if (!sprtexp)
+		{
+			RESETVIEW
+			return false;
+		}
 
-				flip = sprframe->flip & (1<<rot);
-			}
+		sprtex.width = sprtexp->width;
+		sprtex.height = sprtexp->height;
 
-			// get rsp_texture
-			lumpnum = sprframe->lumppat[rot];
-			wad = WADFILENUM(lumpnum);
-			lump = LUMPNUM(lumpnum);
+		// make the patch
+		if (!sprtexp->data)
+		{
+			patch_t *source;
+			size_t size;
 
-			if (!wadfiles[wad]->patchcache)
+			// uuhhh.....
+			if (!sprtexp->lumpnum)
 			{
 				RESETVIEW
 				return false;
 			}
 
-			lumpcache = wadfiles[wad]->patchcache->software;
-			if (!lumpcache[lump])
+			// still not a patch yet
+			// (R_CheckIfPatch has most likely failed)
+			if ((sprtexp->width) < 1 || (sprtexp->height < 1))
 			{
 				RESETVIEW
 				return false;
 			}
 
-			sprtexp = lumpcache[lump];
-			sprtexp += rot;
-			if (!sprtexp)
-			{
-				RESETVIEW
-				return false;
-			}
+			// cache the source patch
+			source = (patch_t *)W_CacheLumpNum(sprtexp->lumpnum, PU_STATIC);
 
-			sprtex.width = sprtexp->width;
-			sprtex.height = sprtexp->height;
+			// make the buffer
+			size = (sprtexp->width * sprtexp->height);
+			sprtexp->data = Z_Calloc(size * sizeof(UINT16), PU_SOFTPOLY, NULL);
 
-			// make the patch
-			if (!sprtexp->data)
-			{
-				patch_t *source;
-				size_t size;
+			// generate the texture, then clear lumpnum
+			R_GenerateSpriteTexture(source, sprtexp->data, 0, 0, sprtexp->width, sprtexp->height, flip, NULL, NULL);
+			sprtexp->lumpnum = 0;
 
-				// uuhhh.....
-				if (!sprtexp->lumpnum)
-				{
-					RESETVIEW
-					return false;
-				}
-
-				// still not a patch yet
-				// (R_CheckIfPatch has most likely failed)
-				if ((sprtexp->width) < 1 || (sprtexp->height < 1))
-				{
-					RESETVIEW
-					return false;
-				}
-
-				// cache the source patch
-				source = (patch_t *)W_CacheLumpNum(sprtexp->lumpnum, PU_STATIC);
-
-				// make the buffer
-				size = (sprtexp->width * sprtexp->height);
-				sprtexp->data = Z_Calloc(size * sizeof(UINT16), PU_SOFTPOLY, NULL);
-
-				// generate the texture, then clear lumpnum
-				R_GenerateSpriteTexture(source, sprtexp->data, 0, 0, sprtexp->width, sprtexp->height, flip, NULL, NULL);
-				sprtexp->lumpnum = 0;
-
-				// aight bro u have lost yuor cache privileges
-				Z_Free(source);
-			}
-
-			// Set the translation here because no blend texture was made
-			if (tc == TC_DEFAULT && (mobj->skin))
-				tc = skinnum;
-			translation = R_GetTranslationColormap(tc, mobj->color, GTC_CACHE);
-
-			sprtex.data = sprtexp->data;
-			texture = &sprtex;
+			// aight bro u have lost yuor cache privileges
+			Z_Free(source);
 		}
 
-		if (mobj->frame & FF_ANIMATE)
-		{
-			// set duration and tics to be the correct values for FF_ANIMATE states
-			durs = mobj->state->var2;
-			tics = mobj->anim_duration;
-		}
+		// Set the translation here because no blend texture was made
+		if (tc == TC_DEFAULT && (mobj->skin))
+			tc = skinnum;
+		translation = R_GetTranslationColormap(tc, mobj->color, GTC_CACHE);
 
-		frameIndex = (mobj->frame & FF_FRAMEMASK);
-		if (mobj->skin && mobj->sprite == SPR_PLAY && md2->model->spr2frames)
-		{
-			spr2 = Model_GetSprite2(md2, mobj->skin, mobj->sprite2, mobj->player);
-			mod = md2->model->spr2frames[spr2].numframes;
+		sprtex.data = sprtexp->data;
+		texture = &sprtex;
+	}
+
+	if (mobj->frame & FF_ANIMATE)
+	{
+		// set duration and tics to be the correct values for FF_ANIMATE states
+		durs = mobj->state->var2;
+		tics = mobj->anim_duration;
+	}
+	else
+	{
+		durs = mobj->state->tics;
+		tics = mobj->tics;
+	}
+
+	frameIndex = (mobj->frame & FF_FRAMEMASK);
+	if (mobj->skin && mobj->sprite == SPR_PLAY && md2->model->spr2frames)
+	{
+		spr2 = Model_GetSprite2(md2, mobj->skin, mobj->sprite2, mobj->player);
+		mod = md2->model->spr2frames[spr2].numframes;
 #ifndef DONTHIDEDIFFANIMLENGTH // by default, different anim length is masked by the mod
-			if (mod > (INT32)((skin_t *)mobj->skin)->sprites[spr2].numframes)
-				mod = ((skin_t *)mobj->skin)->sprites[spr2].numframes;
+		if (mod > (INT32)((skin_t *)mobj->skin)->sprites[spr2].numframes)
+			mod = ((skin_t *)mobj->skin)->sprites[spr2].numframes;
 #endif
-			if (!mod)
-				mod = 1;
-			frameIndex = md2->model->spr2frames[spr2].frames[frameIndex%mod];
-		}
-		else
-		{
-			mod = md2->model->meshes[0].numFrames;
-			if (!mod)
-				mod = 1;
-		}
+		if (!mod)
+			mod = 1;
+		frameIndex = md2->model->spr2frames[spr2].frames[frameIndex%mod];
+	}
+	else
+	{
+		mod = md2->model->meshes[0].numFrames;
+		if (!mod)
+			mod = 1;
+	}
 
 #ifdef USE_MODEL_NEXTFRAME
-		if (cv_modelinterpolation.value && tics <= durs && tics <= MODEL_INTERPOLATION_LIMIT)
+	if (cv_modelinterpolation.value && tics <= durs && tics <= MODEL_INTERPOLATION_LIMIT)
+	{
+		if (durs > MODEL_INTERPOLATION_LIMIT)
+			durs = MODEL_INTERPOLATION_LIMIT;
+
+		if (mobj->skin && mobj->sprite == SPR_PLAY && md2->model->spr2frames)
 		{
-			if (durs > MODEL_INTERPOLATION_LIMIT)
-				durs = MODEL_INTERPOLATION_LIMIT;
-
-			if (mobj->skin && mobj->sprite == SPR_PLAY && md2->model->spr2frames)
+			if (Model_CanInterpolateSprite2(&md2->model->spr2frames[spr2])
+				&& (mobj->frame & FF_ANIMATE
+				|| (mobj->state->nextstate != S_NULL
+				&& states[mobj->state->nextstate].sprite == SPR_PLAY
+				&& ((P_GetSkinSprite2(mobj->skin, (((mobj->player && mobj->player->powers[pw_super]) ? FF_SPR2SUPER : 0)|states[mobj->state->nextstate].frame) & FF_FRAMEMASK, mobj->player) == mobj->sprite2)))))
 			{
-				if (Model_CanInterpolateSprite2(&md2->model->spr2frames[spr2])
-					&& (mobj->frame & FF_ANIMATE
-					|| (mobj->state->nextstate != S_NULL
-					&& states[mobj->state->nextstate].sprite == SPR_PLAY
-					&& ((P_GetSkinSprite2(mobj->skin, (((mobj->player && mobj->player->powers[pw_super]) ? FF_SPR2SUPER : 0)|states[mobj->state->nextstate].frame) & FF_FRAMEMASK, mobj->player) == mobj->sprite2)))))
-				{
-					nextFrameIndex = (mobj->frame & FF_FRAMEMASK) + 1;
-					if (nextFrameIndex >= mod)
-						nextFrameIndex = 0;
-					if (frameIndex || !(mobj->state->frame & FF_SPR2ENDSTATE))
-						nextFrameIndex = md2->model->spr2frames[spr2].frames[nextFrameIndex];
-					else
-						nextFrameIndex = -1;
-				}
-			}
-			else if (Model_CanInterpolate(mobj, md2->model))
-			{
-				// frames are handled differently for states with FF_ANIMATE, so get the next frame differently for the interpolation
-				if (mobj->frame & FF_ANIMATE)
-				{
-					nextFrameIndex = (mobj->frame & FF_FRAMEMASK) + 1;
-					if (nextFrameIndex >= (INT32)(mobj->state->var1 + (mobj->state->frame & FF_FRAMEMASK)))
-						nextFrameIndex = (mobj->state->frame & FF_FRAMEMASK) % mod;
-				}
+				nextFrameIndex = (mobj->frame & FF_FRAMEMASK) + 1;
+				if (nextFrameIndex >= mod)
+					nextFrameIndex = 0;
+				if (frameIndex || !(mobj->state->frame & FF_SPR2ENDSTATE))
+					nextFrameIndex = md2->model->spr2frames[spr2].frames[nextFrameIndex];
 				else
-				{
-					if (mobj->state->nextstate != S_NULL && states[mobj->state->nextstate].sprite != SPR_NULL
-					&& !(mobj->player && (mobj->state->nextstate == S_PLAY_WAIT) && mobj->state == &states[S_PLAY_STND]))
-						nextFrameIndex = (states[mobj->state->nextstate].frame & FF_FRAMEMASK) % mod;
-				}
-			}
-
-			// don't interpolate if instantaneous or infinite in length
-			if (durs != 0 && durs != -1 && tics != -1)
-			{
-				UINT32 newtime = (durs - tics);
-
-				pol = (newtime)/(float)durs;
-
-				if (pol > 1.0f)
-					pol = 1.0f;
-
-				if (pol < 0.0f)
-					pol = 0.0f;
+					nextFrameIndex = -1;
 			}
 		}
+		else if (Model_CanInterpolate(mobj, md2->model))
+		{
+			// frames are handled differently for states with FF_ANIMATE, so get the next frame differently for the interpolation
+			if (mobj->frame & FF_ANIMATE)
+			{
+				nextFrameIndex = (mobj->frame & FF_FRAMEMASK) + 1;
+				if (nextFrameIndex >= (INT32)(mobj->state->var1 + (mobj->state->frame & FF_FRAMEMASK)))
+					nextFrameIndex = (mobj->state->frame & FF_FRAMEMASK) % mod;
+			}
+			else
+			{
+				if (mobj->state->nextstate != S_NULL && states[mobj->state->nextstate].sprite != SPR_NULL
+				&& !(mobj->player && (mobj->state->nextstate == S_PLAY_WAIT) && mobj->state == &states[S_PLAY_STND]))
+					nextFrameIndex = (states[mobj->state->nextstate].frame & FF_FRAMEMASK) % mod;
+			}
+		}
+
+		// don't interpolate if instantaneous or infinite in length
+		if (durs != 0 && durs != -1 && tics != -1)
+		{
+			UINT32 newtime = (durs - tics);
+
+			pol = (newtime)/(float)durs;
+
+			if (pol > 1.0f)
+				pol = 1.0f;
+
+			if (pol < 0.0f)
+				pol = 0.0f;
+		}
+	}
 #endif
 
-		// SRB2CBTODO: MD2 scaling support
-		finalscale = md2->scale * FIXED_TO_FLOAT(mobj->scale);
-		finalscale *= 0.5f;
+	// SRB2CBTODO: MD2 scaling support
+	finalscale = md2->scale * FixedToFloat(mobj->scale);
+	finalscale *= 0.5f;
 
 #ifdef ROTSPRITE
-		if (mobj->rollangle)
-		{
-			int rollflip = 1;
-			rotaxis_t rotaxis = ROTAXIS_Y;
-			float roll;
-			fixed_t froll;
-			float modelcenterx, modelcentery;
+	if (mobj->rollangle)
+	{
+		int rollflip = 1;
+		rotaxis_t rotaxis = ROTAXIS_Y;
+		float roll;
+		fixed_t froll;
+		float modelcenterx, modelcentery;
 
-			rollangle = mobj->rollangle;
-			froll = AngleFixed(rollangle);
-			roll = FIXED_TO_FLOAT(froll);
+		rollangle = mobj->rollangle;
+		froll = AngleFixed(rollangle);
+		roll = FixedToFloat(froll);
 
-			// rotation axis
-			if (sprinfo->available)
-				rotaxis = (UINT8)(sprinfo->pivot[(mobj->frame & FF_FRAMEMASK)].rotaxis);
+		// rotation axis
+		if (sprinfo->available)
+			rotaxis = (UINT8)(sprinfo->pivot[(mobj->frame & FF_FRAMEMASK)].rotaxis);
 
-			// for NiGHTS specifically but should work everywhere else
-			ang = R_PointToAngle(mobj->x, mobj->y) - (mobj->player ? mobj->player->drawangle : mobj->angle);
-			if ((sprframe->rotate & SRF_RIGHT) && (ang < ANGLE_180)) // See from right
-				rollflip = 1;
-			else if ((sprframe->rotate & SRF_LEFT) && (ang >= ANGLE_180)) // See from left
-				rollflip = -1;
+		// for NiGHTS specifically but should work everywhere else
+		ang = R_PointToAngle(mobj->x, mobj->y) - (mobj->player ? mobj->player->drawangle : mobj->angle);
+		if ((sprframe->rotate & SRF_RIGHT) && (ang < ANGLE_180)) // See from right
+			rollflip = 1;
+		else if ((sprframe->rotate & SRF_LEFT) && (ang >= ANGLE_180)) // See from left
+			rollflip = -1;
 
-			roll *= rollflip;
-			if (rotaxis == 2) // Z
-				rollquaternion = RSP_QuaternionFromEuler(0.0f, roll, 0.0f);
-			else if (rotaxis == 1) // Y
-				rollquaternion = RSP_QuaternionFromEuler(0.0f, 0.0f, roll);
-			else // X
-				rollquaternion = RSP_QuaternionFromEuler(roll, 0.0f, 0.0f);
+		roll *= rollflip;
+		if (rotaxis == 2) // Z
+			rollquaternion = RSP_QuaternionFromEuler(0.0f, roll, 0.0f);
+		else if (rotaxis == 1) // Y
+			rollquaternion = RSP_QuaternionFromEuler(0.0f, 0.0f, roll);
+		else // X
+			rollquaternion = RSP_QuaternionFromEuler(roll, 0.0f, 0.0f);
 
-			modelcenterx = FIXED_TO_FLOAT(mobj->radius/2);
-			modelcentery = FIXED_TO_FLOAT(mobj->height/2);
-			RSP_MakeVector4(rolltranslation, modelcenterx, 0.0f, modelcentery);
-		}
+		modelcenterx = FixedToFloat(mobj->radius/2);
+		modelcentery = FixedToFloat(mobj->height/2);
+		RSP_MakeVector4(rolltranslation, modelcenterx, 0.0f, modelcentery);
+	}
 #endif
 
-		// Render every mesh
-		for (meshnum = 0; meshnum < md2->model->numMeshes; meshnum++)
+	// Setup draw state
+	if (spr->transmap && (rsp_target.read & RSP_READ_COLOR))
+	{
+		rsp_state.transmap = spr->transmap;
+		rsp_curpixelfunc = rsp_transpixelfunc;
+	}
+	else
+		rsp_curpixelfunc = rsp_basepixelfunc;
+
+	if (texture->data)
+		rsp_state.texture = texture;
+	else
+		rsp_state.texture = NULL;
+
+	rsp_state.colormap = spr->colormap;
+
+	if (spr->extra_colormap)
+	{
+		if (!rsp_state.colormap)
+			rsp_state.colormap = spr->extra_colormap->colormap;
+		else
+			rsp_state.colormap = &spr->extra_colormap->colormap[rsp_state.colormap - colormaps];
+	}
+
+	rsp_state.translation = translation;
+
+	vflip = (!(mobj->eflags & MFE_VERTICALFLIP) != !(mobj->frame & FF_VERTICALFLIP));
+	rsp_state.flipped = vflip;
+
+	// set model angle
+	if ((sprframe->rotate == SRF_SINGLE) && (!papersprite))
+		ang = R_PointToAngle(mobj->x, mobj->y);
+	else if (mobj->player)
+		ang = mobj->player->drawangle;
+	else
+		ang = mobj->angle;
+
+	if (modeltransform == NULL)
+	{
+		modeltransform = Z_Malloc(sizeof(S3L_Transform3D), PU_SOFTPOLY, NULL);
+
+		S3L_initTransform3D(modeltransform);
+
+		modeltransform->rotation.x = 0;
+		modeltransform->rotation.z = 0;
+	}
+
+	if (mobj->eflags & MFE_VERTICALFLIP)
+		modelz = mobj->z + mobj->height;
+	else
+		modelz = mobj->z;
+
+	modeltransform->translation.x = FixedDiv(mobj->x, RSP_INTERNALUNITDIVIDE);
+	modeltransform->translation.y = FixedDiv(modelz, RSP_INTERNALUNITDIVIDE);
+	modeltransform->translation.z = FixedDiv(mobj->y + FloatToFixed(md2->offset), RSP_INTERNALUNITDIVIDE);
+	modeltransform->rotation.y = RSP_AngleToInternalAngle(ang - ANGLE_90);
+
+	S3L_makeWorldMatrix(modeltransform, &rsp_modelmatrix);
+
+	rsp_lightpos.x = modeltransform->translation.x;
+	rsp_lightpos.y = modeltransform->translation.y + (10 * RSP_INTERNALUNITDIVIDE);
+	rsp_lightpos.z = modeltransform->translation.z;
+
+	S3L_normalizeVec3(&rsp_lightpos);
+
+	// Render every mesh
+	for (meshnum = 0; meshnum < md2->model->numMeshes; meshnum++)
+	{
+		mesh_t *mesh = &md2->model->meshes[meshnum];
+		rsp_triangle_t triangle;
+
+		UINT16 i, j;
+		float scale = finalscale;
+
+		mdlframe_t *frame = NULL, *nextframe = NULL;
+		tinyframe_t *tinyframe = NULL, *tinynextframe = NULL;
+
+		useTinyFrames = md2->model->meshes[meshnum].tinyframes != NULL;
+		if (useTinyFrames)
 		{
-			mesh_t *mesh = &md2->model->meshes[meshnum];
-			rsp_triangle_t triangle;
-			float theta, cs, sn;
-			fixed_t model_angle;
-			UINT16 i, j;
-			float scale = finalscale;
+			tinyframe = &mesh->tinyframes[frameIndex % mesh->numFrames];
+			if (nextFrameIndex != -1)
+				tinynextframe = &mesh->tinyframes[nextFrameIndex % mesh->numFrames];
+			scale *= MD3_XYZ_SCALE;
+		}
+		else
+		{
+			frame = &mesh->frames[frameIndex % mesh->numFrames];
+			if (nextFrameIndex != -1)
+				nextframe = &mesh->frames[nextFrameIndex % mesh->numFrames];
+		}
 
-			mdlframe_t *frame = NULL, *nextframe = NULL;
-			tinyframe_t *tinyframe = NULL, *tinynextframe = NULL;
+		// render every triangle
+		for (i = 0; i < mesh->numTriangles; i++)
+		{
+			float s, t;
+			float *uv = mesh->uvs;
 
-			useTinyFrames = md2->model->meshes[meshnum].tinyframes != NULL;
-			if (useTinyFrames)
-			{
-				tinyframe = &mesh->tinyframes[frameIndex % mesh->numFrames];
-				if (nextFrameIndex != -1)
-					tinynextframe = &mesh->tinyframes[nextFrameIndex % mesh->numFrames];
-				scale *= MD3_XYZ_SCALE;
-			}
-			else
-			{
-				frame = &mesh->frames[frameIndex % mesh->numFrames];
-				if (nextFrameIndex != -1)
-					nextframe = &mesh->frames[nextFrameIndex % mesh->numFrames];
-			}
-
-			// clear triangle struct
-			// avoid undefined behaviour.............
-			memset(&triangle, 0x00, sizeof(rsp_triangle_t));
-
-			// set triangle texture
-			if (texture->data)
-				triangle.texture = texture;
-
-			// set colormap, translation and transmap
-			triangle.colormap = spr->colormap;
-			if (spr->extra_colormap)
-			{
-				if (!triangle.colormap)
-					triangle.colormap = spr->extra_colormap->colormap;
-				else
-					triangle.colormap = &spr->extra_colormap->colormap[triangle.colormap - colormaps];
-			}
-			triangle.translation = translation;
-			triangle.transmap = spr->transmap;
-
-			// vertical flip
-			triangle.flipped = vflip;
-
-			// set model angle
-			if ((sprframe->rotate == SRF_SINGLE) && (!papersprite))
-				ang = (R_PointToAngle(mobj->x, mobj->y) - ANGLE_180);
-			else if (mobj->player)
-				ang = mobj->player->drawangle;
-			else
-				ang = mobj->angle;
-
-			// convert to fixed-point, then to radians in float
-			model_angle = AngleFixed(ang);
-			theta = -(FIXED_TO_FLOAT(model_angle) * M_PI / 180.0f);
-			cs = cos(theta);
-			sn = sin(theta);
-
-			// render every triangle
-			for (i = 0; i < mesh->numTriangles; i++)
-			{
-				float x, y, z;
-				float s, t;
-				float *uv = mesh->uvs;
-
-				x = FIXED_TO_FLOAT(mobj->x);
-				y = FIXED_TO_FLOAT(mobj->y) + md2->offset;
-
-				if (mobj->eflags & MFE_VERTICALFLIP)
-					z = FIXED_TO_FLOAT(mobj->z + mobj->height);
-				else
-					z = FIXED_TO_FLOAT(mobj->z);
-
-				// Rotate the triangle -90 degrees and invert the Z coordinate
-				#define FIXTRIANGLE(rotx, roty, rotz) \
+			// Rotate the triangle -90 degrees and invert the Z coordinate
+			#define FIXTRIANGLE(rotx, roty, rotz) \
+			{ \
+				RSP_MakeVector4(modelvec, rotx, roty, rotz); \
+				RSP_QuaternionRotateVector(&modelvec, modelquaternion); \
+				if (rollangle) \
 				{ \
-					RSP_MakeVector4(modelvec, rotx, roty, rotz); \
-					RSP_QuaternionRotateVector(&modelvec, modelquaternion); \
-					if (rollangle) \
-					{ \
-						modelvec = RSP_VectorAdd(&modelvec, &rolltranslation); \
-						RSP_QuaternionRotateVector(&modelvec, &rollquaternion); \
-						modelvec = RSP_VectorSubtract(&modelvec, &rolltranslation); \
-					} \
-					rotx = modelvec.x; \
-					roty = modelvec.y; \
-					rotz = modelvec.z; \
-					roty *= -1.0; \
+					modelvec = RSP_VectorAdd(&modelvec, &rolltranslation); \
+					RSP_QuaternionRotateVector(&modelvec, &rollquaternion); \
+					modelvec = RSP_VectorSubtract(&modelvec, &rolltranslation); \
 				} \
+				rotx = -1.0f * modelvec.x; \
+				roty = -1.0f * modelvec.y; \
+				rotz = -1.0f * modelvec.z; \
+			} \
 
-				for (j = 0; j < 3; j++)
+			for (j = 0; j < 3; j++)
+			{
+				float nx = 0.0f, ny = 0.0f, nz = 0.0f;
+
+				if (useTinyFrames)
 				{
-					if (useTinyFrames)
-					{
-						idx = mesh->indices[(i * 3) + j];
-						s = *(uv + (idx * 2));
-						t = *(uv + (idx * 2) + 1);
-					}
-					else
-					{
-						s = uv[UV_OFFSET];
-						t = uv[UV_OFFSET+1];
-					}
-
-					if (!(nextframe || tinynextframe) || fpclassify(pol) == FP_ZERO)
-					{
-						float vx, vy, vz;
-						float mx, my, mz;
-
-						if (useTinyFrames)
-						{
-							short *vert = tinyframe->vertices;
-							vx = *(vert + (idx * 3)) * scale;
-							vy = *(vert + (idx * 3) + 1) * scale;
-							vz = *(vert + (idx * 3) + 2) * scale;
-							FIXTRIANGLE(vx, vy, vz)
-						}
-						else
-						{
-							vx = frame->vertices[VERTEX_OFFSET] * scale;
-							vy = frame->vertices[VERTEX_OFFSET+1] * scale;
-							vz = frame->vertices[VERTEX_OFFSET+2] * scale;
-							FIXTRIANGLE(vx, vy, vz)
-						}
-
-						// QUICK MATHS
-						mx = (vx * cs) - (vy * sn);
-						my = (vx * sn) + (vy * cs);
-						mz = vz * (vflip ? -1 : 1);
-
-						RSP_MakeVector4(triangle.vertices[j].position, (x + mx), (-z + mz), (-y + my));
-					}
-					else
-					{
-						float px1, py1, pz1;
-						float px2, py2, pz2;
-						float mx1, my1, mz1;
-						float mx2, my2, mz2;
-						float lx, ly, lz;
-
-						// Interpolate
-						if (useTinyFrames)
-						{
-							short *vert = tinyframe->vertices;
-							short *nvert = tinynextframe->vertices;
-							px1 = *(vert + (idx * 3)) * scale;
-							py1 = *(vert + (idx * 3) + 1) * scale;
-							pz1 = *(vert + (idx * 3) + 2) * scale;
-							px2 = *(nvert + (idx * 3)) * scale;
-							py2 = *(nvert + (idx * 3) + 1) * scale;
-							pz2 = *(nvert + (idx * 3) + 2) * scale;
-							FIXTRIANGLE(px1, py1, pz1)
-							FIXTRIANGLE(px2, py2, pz2)
-						}
-						else
-						{
-							px1 = frame->vertices[VERTEX_OFFSET] * scale;
-							py1 = frame->vertices[VERTEX_OFFSET+1] * scale;
-							pz1 = frame->vertices[VERTEX_OFFSET+2] * scale;
-							px2 = nextframe->vertices[VERTEX_OFFSET] * scale;
-							py2 = nextframe->vertices[VERTEX_OFFSET+1] * scale;
-							pz2 = nextframe->vertices[VERTEX_OFFSET+2] * scale;
-							FIXTRIANGLE(px1, py1, pz1)
-							FIXTRIANGLE(px2, py2, pz2)
-						}
-
-						// QUICK MATHS
-						mx1 = (px1 * cs) - (py1 * sn);
-						my1 = (px1 * sn) + (py1 * cs);
-						mz1 = pz1 * (vflip ? -1 : 1);
-
-						mx2 = (px2 * cs) - (py2 * sn);
-						my2 = (px2 * sn) + (py2 * cs);
-						mz2 = pz2 * (vflip ? -1 : 1);
-
-						// interpolate
-						lx = FloatLerp(mx1, mx2, pol);
-						ly = FloatLerp(my1, my2, pol);
-						lz = FloatLerp(mz1, mz2, pol);
-
-						RSP_MakeVector4(triangle.vertices[j].position, (x + lx), (-z + lz), (-y + ly));
-					}
-
-					triangle.vertices[j].uv.u = s;
-					triangle.vertices[j].uv.v = t;
+					idx = mesh->indices[(i * 3) + j];
+					s = *(uv + (idx * 2));
+					t = *(uv + (idx * 2) + 1);
+				}
+				else
+				{
+					s = uv[UV_OFFSET];
+					t = uv[UV_OFFSET+1];
 				}
 
-				RSP_TransformTriangle(&triangle);
+				if (!(nextframe || tinynextframe) || fpclassify(pol) == FP_ZERO)
+				{
+					float vx, vy, vz;
+
+					if (useTinyFrames)
+					{
+						short *vert = tinyframe->vertices;
+						char *norm = tinyframe->normals;
+
+						vx = *(vert + (idx * 3)) * scale;
+						vy = *(vert + (idx * 3) + 1) * scale;
+						vz = *(vert + (idx * 3) + 2) * scale;
+
+						FIXTRIANGLE(vx, vy, vz)
+
+						if (rsp_target.read & RSP_READ_LIGHT)
+						{
+							nx = (float)(*(norm + (idx * 3))) * NORMAL_SCALE;
+							ny = (float)(*(norm + (idx * 3) + 1)) * NORMAL_SCALE;
+							nz = (float)(*(norm + (idx * 3) + 2)) * NORMAL_SCALE;
+						}
+					}
+					else
+					{
+						vx = frame->vertices[VERTEX_OFFSET] * scale;
+						vy = frame->vertices[VERTEX_OFFSET+1] * scale;
+						vz = frame->vertices[VERTEX_OFFSET+2] * scale;
+
+						FIXTRIANGLE(vx, vy, vz)
+
+						if (rsp_target.read & RSP_READ_LIGHT)
+						{
+							nx = frame->normals[NORMAL_OFFSET];
+							ny = frame->normals[NORMAL_OFFSET+1];
+							nz = frame->normals[NORMAL_OFFSET+2];
+						}
+					}
+
+					z1 = vz * (vflip ? -1 : 1);
+
+					triangle.vertices[j].position.x = FixedDiv(FloatToFixed(vx), RSP_INTERNALUNITDIVIDE);
+					triangle.vertices[j].position.y = FixedDiv(FloatToFixed(z1), RSP_INTERNALUNITDIVIDE);
+					triangle.vertices[j].position.z = FixedDiv(FloatToFixed(vy), RSP_INTERNALUNITDIVIDE);
+				}
+				else
+				{
+					// Interpolate
+					float px1, py1, pz1;
+					float px2, py2, pz2;
+					float nx1 = 0.0f, ny1 = 0.0f, nz1 = 0.0f;
+					float nx2 = 0.0f, ny2 = 0.0f, nz2 = 0.0f;
+					float lx, ly, lz;
+
+					if (useTinyFrames)
+					{
+						short *vert = tinyframe->vertices;
+						short *nvert = tinynextframe->vertices;
+						char *norm = tinyframe->normals;
+						char *nnorm = tinynextframe->normals;
+
+						px1 = *(vert + (idx * 3)) * scale;
+						py1 = *(vert + (idx * 3) + 1) * scale;
+						pz1 = *(vert + (idx * 3) + 2) * scale;
+						px2 = *(nvert + (idx * 3)) * scale;
+						py2 = *(nvert + (idx * 3) + 1) * scale;
+						pz2 = *(nvert + (idx * 3) + 2) * scale;
+
+						FIXTRIANGLE(px1, py1, pz1)
+						FIXTRIANGLE(px2, py2, pz2)
+
+						if (rsp_target.read & RSP_READ_LIGHT)
+						{
+							nx1 = (float)(*(norm + (idx * 3))) * NORMAL_SCALE;
+							ny1 = (float)(*(norm + (idx * 3) + 1)) * NORMAL_SCALE;
+							nz1 = (float)(*(norm + (idx * 3) + 2)) * NORMAL_SCALE;
+							nx2 = (float)(*(nnorm + (idx * 3))) * NORMAL_SCALE;
+							ny2 = (float)(*(nnorm + (idx * 3) + 1)) * NORMAL_SCALE;
+							nz2 = (float)(*(nnorm + (idx * 3) + 2)) * NORMAL_SCALE;
+						}
+					}
+					else
+					{
+						px1 = frame->vertices[VERTEX_OFFSET] * scale;
+						py1 = frame->vertices[VERTEX_OFFSET+1] * scale;
+						pz1 = frame->vertices[VERTEX_OFFSET+2] * scale;
+						px2 = nextframe->vertices[VERTEX_OFFSET] * scale;
+						py2 = nextframe->vertices[VERTEX_OFFSET+1] * scale;
+						pz2 = nextframe->vertices[VERTEX_OFFSET+2] * scale;
+
+						FIXTRIANGLE(px1, py1, pz1)
+						FIXTRIANGLE(px2, py2, pz2)
+
+						if (rsp_target.read & RSP_READ_LIGHT)
+						{
+							nx1 = frame->normals[NORMAL_OFFSET];
+							ny1 = frame->normals[NORMAL_OFFSET+1];
+							nz1 = frame->normals[NORMAL_OFFSET+2];
+							nx2 = nextframe->normals[NORMAL_OFFSET];
+							ny2 = nextframe->normals[NORMAL_OFFSET+1];
+							nz2 = nextframe->normals[NORMAL_OFFSET+2];
+						}
+					}
+
+					z1 = pz1 * (vflip ? -1 : 1);
+					z2 = pz2 * (vflip ? -1 : 1);
+
+					lx = FloatLerp(px1, px2, pol);
+					ly = FloatLerp(py1, py2, pol);
+					lz = FloatLerp(z1, z2, pol);
+
+					if (rsp_target.read & RSP_READ_LIGHT)
+					{
+						nx = FloatLerp(nx1, nx2, pol);
+						ny = FloatLerp(ny1, ny2, pol);
+						nz = FloatLerp(nz1, nz2, pol);
+					}
+
+					triangle.vertices[j].position.x = FixedDiv(FloatToFixed(lx), RSP_INTERNALUNITDIVIDE);
+					triangle.vertices[j].position.y = FixedDiv(FloatToFixed(lz), RSP_INTERNALUNITDIVIDE);
+					triangle.vertices[j].position.z = FixedDiv(FloatToFixed(ly), RSP_INTERNALUNITDIVIDE);
+				}
+
+				triangle.vertices[j].normal.x = FloatToFixed(nx) >> RSP_INTERNALUNITSHIFT;
+				triangle.vertices[j].normal.y = FloatToFixed(ny) >> RSP_INTERNALUNITSHIFT;
+				triangle.vertices[j].normal.z = FloatToFixed(nz) >> RSP_INTERNALUNITSHIFT;
+
+				triangle.vertices[j].uv.u = FloatToFixed(s) >> RSP_INTERNALUNITSHIFT;
+				triangle.vertices[j].uv.v = FloatToFixed(t) >> RSP_INTERNALUNITSHIFT;
 			}
 
-#ifdef RSP_DEBUGGING
-			rsp_meshesdrawn++;
-#endif
+			// Compute light
+			if (rsp_target.read & RSP_READ_LIGHT)
+			{
+				rsp_state.light[0] = 256 + S3L_clamp(S3L_dotProductVec3((S3L_Vec4 *)(&triangle.vertices[0].normal),&rsp_lightpos),-511,511) / 2;
+				rsp_state.light[1] = 256 + S3L_clamp(S3L_dotProductVec3((S3L_Vec4 *)(&triangle.vertices[1].normal),&rsp_lightpos),-511,511) / 2;
+				rsp_state.light[2] = 256 + S3L_clamp(S3L_dotProductVec3((S3L_Vec4 *)(&triangle.vertices[2].normal),&rsp_lightpos),-511,511) / 2;
+			}
+
+			RSP_TransformTriangle(&triangle);
 		}
+
+#ifdef RSP_DEBUGGING
+		rsp_meshesdrawn++;
+#endif
 	}
 
 #undef FIXTRIANGLE

@@ -476,9 +476,13 @@ static void D_Display(void)
 					}
 				}
 
-				// Image postprocessing effect
 				if (rendermode == render_soft)
 				{
+#ifdef POLYRENDERER
+					RSP_FinishRendering();
+#endif
+
+					// Image postprocessing effect
 					if (!splitscreen)
 						R_ApplyViewMorph();
 

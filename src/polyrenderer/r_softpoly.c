@@ -12,16 +12,21 @@
 
 #include "r_softpoly.h"
 
-rendertarget_t rsp_target;
-viewpoint_t rsp_viewpoint;
-fpmatrix16_t *rsp_projectionmatrix = NULL;
+rsp_state_t     rsp_state;
+rsp_target_t    rsp_target;
+rsp_viewpoint_t rsp_viewpoint;
+
+rsp_matrix_t rsp_projectionviewmatrix;
+rsp_matrix_t rsp_modelmatrix;
+
+rsp_lightpos_t rsp_lightpos;
+
+static S3L_Camera rsp_camera;
 
 // Debugging info
 #ifdef RSP_DEBUGGING
 INT32 rsp_meshesdrawn = 0;
 INT32 rsp_trisdrawn = 0;
-
-consvar_t cv_rspdebugdepth = {"rsp_debugdepth", "Off", 0, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
 #endif
 
 // init the polygon renderer
@@ -34,98 +39,94 @@ void RSP_Init(void)
 	// run other initialisation code
 	RSP_SetDrawerFunctions();
 
-#ifdef RSP_DEBUGGING
-	CV_RegisterVar(&cv_rspdebugdepth);
-#endif
+	// S3L
+	S3L_pixelFunction = RSP_ProcessFragment;
+	S3L_initCamera(&rsp_camera);
+}
+
+static void RSP_SetupFrame(fixed_t x, fixed_t y, fixed_t z, angle_t angle)
+{
+	S3L_Transform3D *transform = &rsp_camera.transform;
+
+	transform->translation.x = FixedDiv(x, RSP_INTERNALUNITDIVIDE);
+	transform->translation.y = FixedDiv(z, RSP_INTERNALUNITDIVIDE);
+	transform->translation.z = FixedDiv(y, RSP_INTERNALUNITDIVIDE);
+	transform->rotation.x = 0;
+	transform->rotation.y = RSP_AngleToInternalAngle(angle);
+	transform->rotation.z = 0;
+	transform->scale.z = rsp_target.fov;
+
+	S3L_makeCameraMatrix(transform, &rsp_projectionviewmatrix);
+
+	S3L_viewWindow[S3L_VIEW_WINDOW_X1] = viewwindowx;
+	S3L_viewWindow[S3L_VIEW_WINDOW_X2] = viewwindowx + rsp_target.width;
+
+	S3L_viewWindow[S3L_VIEW_WINDOW_Y1] = viewwindowy;
+	S3L_viewWindow[S3L_VIEW_WINDOW_Y2] = viewwindowy + rsp_target.height;
+
+	S3L_screenVertexOffsetX = viewwindowx;
+	S3L_screenVertexOffsetY = viewwindowy + (centery - (viewheight/2));
 }
 
 // make the viewport, after resolution change
 void RSP_Viewport(INT32 width, INT32 height)
 {
-	fixed_t fzoom = R_GetViewMorphZoom();
-	float zoom = FIXED_TO_FLOAT(fzoom);
-	float fov = FIXED_TO_FLOAT(cv_fov.value);
-
-	// viewport width and height
 	rsp_target.width = width;
 	rsp_target.height = height;
 
-	// viewport aspect ratio and fov
-	rsp_target.aspectratio = (float)rsp_target.width / (float)rsp_target.height;
-	rsp_target.fov = fov;
-	fov *= (M_PI / 180.f);
+	rsp_target.fov = FixedDiv(fovtan, RSP_INTERNALUNITDIVIDE);
+	rsp_target.aspect = (float)rsp_target.width / (float)rsp_target.height;
 
-	// make depth buffer
-	if (rsp_target.depthbuffer)
-		Z_Free(rsp_target.depthbuffer);
-	rsp_target.depthbuffer = Z_Malloc(sizeof(float) * (rsp_target.width * rsp_target.height), PU_SOFTPOLY, NULL);
+	rsp_target.read = (RSP_READ_COLOR | RSP_READ_DEPTH);
+	rsp_target.write = (RSP_WRITE_COLOR | RSP_WRITE_DEPTH);
+	rsp_target.cull = RSP_CULL_FRONT;
 
-	// renderer modes
-	rsp_target.mode = (RENDERMODE_COLOR|RENDERMODE_DEPTH);
-	rsp_target.cullmode = TRICULL_FRONT;
+	// Setup S3L
+	S3L_resolutionX = rsp_target.width;
+	S3L_resolutionY = rsp_target.height;
 
-	// far and near plane (frustum clipping)
-	rsp_target.far_plane = 32768.0f;
-	rsp_target.near_plane = 16.0f;
-
-	// make projection matrix
-	RSP_MakePerspectiveMatrix(&rsp_viewpoint.projection_matrix, fov, zoom, rsp_target.aspectratio, 0.1f, rsp_target.far_plane);
-}
-
-// up vector
-// right vector not needed
-static fpvector4_t upvector = {0.0f, 1.0f, 0.0f, 1.0f};
-
-// make all the vectors and matrixes
-static void RSP_SetupFrame(fixed_t vx, fixed_t vy, fixed_t vz, angle_t vangle)
-{
-	fpmatrix16_t modelview;
-	fixed_t angle = AngleFixed(vangle - ANGLE_90);
-	float viewang = FIXED_TO_FLOAT(angle);
-
-	// make position and target vectors
-	RSP_MakeVector4(rsp_viewpoint.position_vector, FIXED_TO_FLOAT(vx), -FIXED_TO_FLOAT(vz), -FIXED_TO_FLOAT(vy));
-	RSP_MakeVector4(rsp_viewpoint.target_vector, 0, 0, -1);
-
-	// make view matrix
-	RSP_VectorRotate(&rsp_viewpoint.target_vector, (viewang * M_PI / 180.0f), upvector.x, upvector.y, upvector.z);
-	RSP_MakeViewMatrix(&rsp_viewpoint.view_matrix, &rsp_viewpoint.position_vector, &rsp_viewpoint.target_vector, &upvector);
-
-	// make "model view projection" matrix
-	// in reality, there is no model matrix
-	modelview = RSP_MatrixMultiply(&rsp_viewpoint.view_matrix, &rsp_viewpoint.projection_matrix);
-	if (rsp_projectionmatrix == NULL)
-		rsp_projectionmatrix = Z_Malloc(sizeof(fpmatrix16_t), PU_SOFTPOLY, NULL);
-	M_Memcpy(rsp_projectionmatrix, &modelview, sizeof(fpmatrix16_t));
+	if (S3L_zBuffer)
+		Z_Free(S3L_zBuffer);
+	S3L_zBuffer = Z_Calloc(width * height * sizeof(S3L_ZBUFFER_TYPE), PU_SOFTPOLY, NULL);
 }
 
 void RSP_ModelView(void)
 {
-	// set drawer functions
+	RSP_SetupFrame(viewx, viewy, viewz, viewangle);
+
+	if (cv_modellighting.value)
+	{
+		rsp_target.read |= RSP_READ_LIGHT;
+		rsp_target.write |= RSP_WRITE_LIGHT;
+	}
+	else
+	{
+		rsp_target.read &= ~RSP_READ_LIGHT;
+		rsp_target.write &= ~RSP_WRITE_LIGHT;
+	}
+
 	RSP_SetDrawerFunctions();
 
-	// Clear the depth buffer, and setup the matrixes.
-	RSP_ClearDepthBuffer();
-	RSP_SetupFrame(viewx, viewy, viewz, viewangle);
+	S3L_newFrame();
 }
 
 void RSP_SetDrawerFunctions(void)
 {
 	// Arkus: Set pixel drawer.
 	rsp_curpixelfunc = rsp_basepixelfunc;
-
-	// also set triangle drawer
-	rsp_curtrifunc = RSP_TexturedMappedTriangleFP;
 }
 
 // on frame start
 void RSP_OnFrame(void)
 {
 	RSP_ModelView();
-	rsp_viewwindowx = viewwindowx;
-	rsp_viewwindowy = viewwindowy;
-	rsp_target.aiming = true;
+
 	rsp_maskdraw = 0;
+}
+
+// on rendering end
+void RSP_FinishRendering(void)
+{
 #ifdef RSP_DEBUGGING
 	rsp_meshesdrawn = 0;
 	rsp_trisdrawn = 0;
@@ -183,10 +184,4 @@ void RSP_RestoreSpriteViewpoint(vissprite_t *spr)
 	viewcos = spr->viewcos;
 	viewsin = spr->viewsin;
 	RSP_ModelView();
-}
-
-// clear the depth buffer
-void RSP_ClearDepthBuffer(void)
-{
-	memset(rsp_target.depthbuffer, 0, sizeof(float) * rsp_target.width * rsp_target.height);
 }
