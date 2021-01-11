@@ -134,15 +134,15 @@
 	#define SWRAST_STENCIL_BUFFER 0
 #endif
 
-#ifndef SWRAST_NEAR
-	/** Distance of the near clipping plane. Points in front or EXATLY ON this
+#ifndef SWRAST_NEAR_CLIPPING_PLANE
+	/** Distance of the near clipping plane. Points in front or EXACTLY ON this
 	plane are considered outside the frustum. This must be >= 0. */
 
-	#define SWRAST_NEAR (FRACUNIT / 4)
+	#define SWRAST_NEAR_CLIPPING_PLANE (FRACUNIT * 2)
 #endif
 
-#if SWRAST_NEAR <= 0
-#define SWRAST_NEAR 1 // Can't be <= 0.
+#if SWRAST_NEAR_CLIPPING_PLANE <= 0
+#define SWRAST_NEAR_CLIPPING_PLANE 1 // Can't be <= 0.
 #endif
 
 #ifndef SWRAST_FAST_LERP_QUALITY

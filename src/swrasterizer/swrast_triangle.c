@@ -15,7 +15,7 @@ static void MapProjectedVertexToScreen(SWRast_Vec4 *vertex, fixed_t focalLength)
 {
 	INT16 sX, sY;
 
-	vertex->z = vertex->z >= SWRAST_NEAR ? vertex->z : SWRAST_NEAR;
+	vertex->z = vertex->z >= SWRAST_NEAR_CLIPPING_PLANE ? vertex->z : SWRAST_NEAR_CLIPPING_PLANE;
 	/* ^ This firstly prevents zero division in the follwoing z-divide and
 		secondly "pushes" vertices that are in front of near a little bit forward,
 		which makes them behave a bit better. If all three vertices end up exactly
@@ -41,7 +41,6 @@ static void ProjectVertex(
 	SWRast_MultVec3Mat4(result,projectionMatrix);
 
 	result->w = result->z;
-	/* We'll keep the non-clamped z in w for sorting. */
 }
 
 /**
@@ -73,7 +72,7 @@ UINT8 SWRast_ProjectTriangle(
 
 #if SWRAST_NEAR_CROSS_STRATEGY == 2
 	for (i = 0; i < 3; ++i)
-		if (transformed[i].z < SWRAST_NEAR)
+		if (transformed[i].z < SWRAST_NEAR_CLIPPING_PLANE)
 		{
 			infrontI[infront] = i;
 			infront++;
@@ -86,13 +85,13 @@ UINT8 SWRast_ProjectTriangle(
 
 #define interpolateVertex \
 	ratio =\
-		FixedDiv((transformed[be].z - SWRAST_NEAR),\
+		FixedDiv((transformed[be].z - SWRAST_NEAR_CLIPPING_PLANE),\
 		(transformed[be].z - transformed[in].z));\
 	transformed[in].x = transformed[be].x - \
 		FixedDiv((transformed[be].x - transformed[in].x), ratio);\
 	transformed[in].y = transformed[be].y -\
 		FixedDiv((transformed[be].y - transformed[in].y), ratio);\
-	transformed[in].z = SWRAST_NEAR;
+	transformed[in].z = SWRAST_NEAR_CLIPPING_PLANE;
 
 	if (infront == 2)
 	{
@@ -153,7 +152,7 @@ static SINT8 TriangleIsVisible(
 
 	if ( // outside frustum?
 #if SWRAST_NEAR_CROSS_STRATEGY == 0
-			p0.z <= SWRAST_NEAR || p1.z <= SWRAST_NEAR || p2.z <= SWRAST_NEAR
+			p0.z <= SWRAST_NEAR_CLIPPING_PLANE || p1.z <= SWRAST_NEAR_CLIPPING_PLANE || p2.z <= SWRAST_NEAR_CLIPPING_PLANE
 			// ^ partially in front of NEAR?
 #else
 			clipTest(z,<=,SWRAST_NEAR) // completely in front of NEAR?
