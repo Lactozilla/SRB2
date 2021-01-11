@@ -439,7 +439,8 @@ static void D_Display(void)
 				rs_rendercalltime = I_GetTimeMicros();
 
 #ifdef SWRASTERIZER
-				SWRast_OnFrame();
+				if (swrasterizer)
+					SWRast_OnFrame();
 #endif
 
 				if (players[displayplayer].mo || players[displayplayer].playerstate == PST_DEAD)

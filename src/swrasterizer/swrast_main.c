@@ -56,94 +56,131 @@ static void InitRenderTarget(SWRast_RenderTarget *target)
 
 void SWRast_EnableBlending(void)
 {
-	SWRastState->pixelFunction = SWRast_DrawBlendedPixel;
+	if (SWRastState)
+		SWRastState->pixelFunction = SWRast_DrawBlendedPixel;
 }
 
 void SWRast_DisableBlending(void)
 {
-	SWRastState->pixelFunction = SWRast_DrawPixel;
+	if (SWRastState)
+		SWRastState->pixelFunction = SWRast_DrawPixel;
 }
 
 boolean SWRast_BlendingEnabled(void)
 {
+	if (SWRastState == NULL)
+		return false;
+
 	return (SWRastState->pixelFunction == SWRast_DrawBlendedPixel);
 }
 
 UINT8 SWRast_GetFragmentRead(void)
 {
+	if (SWRastState == NULL)
+		return 0;
+
 	return SWRastState->renderTarget.fragmentRead;
 }
 
 UINT8 SWRast_GetFragmentWrite(void)
 {
+	if (SWRastState == NULL)
+		return 0;
+
 	return SWRastState->renderTarget.fragmentWrite;
 }
 
 UINT32 SWRast_GetMask(void)
 {
+	if (SWRastState == NULL)
+		return 0;
+
 	return SWRastState->maskDraw;
 }
 
 void SWRast_SetMask(UINT32 mask)
 {
-	SWRastState->maskDraw = mask;
+	if (SWRastState)
+		SWRastState->maskDraw = mask;
 }
 
 lighttable_t *SWRast_GetColormap(void)
 {
+	if (SWRastState == NULL)
+		return NULL;
+
 	return SWRastState->colormap;
 }
 
 void SWRast_SetColormap(lighttable_t *colormap)
 {
-	SWRastState->colormap = colormap;
+	if (SWRastState)
+		SWRastState->colormap = colormap;
 }
 
 lighttable_t *SWRast_GetTranslation(void)
 {
+	if (SWRastState == NULL)
+		return NULL;
+
 	return SWRastState->translation;
 }
 
 void SWRast_SetTranslation(lighttable_t *translation)
 {
-	SWRastState->translation = translation;
+	if (SWRastState)
+		SWRastState->translation = translation;
 }
 
 UINT8 *SWRast_GetTranslucencyTable(void)
 {
+	if (SWRastState == NULL)
+		return NULL;
+
 	return SWRastState->translucencyTable;
 }
 
 void SWRast_SetTranslucencyTable(UINT8 *table)
 {
-	SWRastState->translucencyTable = table;
+	if (SWRastState)
+		SWRastState->translucencyTable = table;
 }
 
 SWRast_Texture *SWRast_GetTexture(void)
 {
+	if (SWRastState == NULL)
+		return NULL;
+
 	return SWRastState->texture;
 }
 
 void SWRast_BindTexture(SWRast_Texture *texture)
 {
-	SWRastState->texture = texture;
+	if (SWRastState)
+		SWRastState->texture = texture;
 }
 
 void SWRast_SetClipRanges(INT16 clipleft, INT16 clipright)
 {
+	if (SWRastState == NULL)
+		return;
+
 	SWRastState->spanPortalClip[0] = clipleft;
 	SWRastState->spanPortalClip[1] = clipright;
 }
 
 void SWRast_SetClipTables(INT16 *clipbot, INT16 *cliptop)
 {
+	if (SWRastState == NULL)
+		return;
+
 	SWRastState->spanBottomClip = clipbot;
 	SWRastState->spanTopClip = cliptop;
 }
 
 void SWRast_SetLightPos(fixed_t x, fixed_t y, fixed_t z)
 {
-	if (SWRastState->modelLighting)
+	if (SWRastState && SWRastState->modelLighting)
 	{
 		SWRastState->modelLightPos.x = x;
 		SWRastState->modelLightPos.y = y;
@@ -154,7 +191,7 @@ void SWRast_SetLightPos(fixed_t x, fixed_t y, fixed_t z)
 
 void SWRast_SetVertexLights(fixed_t l0, fixed_t l1, fixed_t l2)
 {
-	if (SWRastState->computeLight)
+	if (SWRastState && SWRastState->computeLight)
 	{
 		SWRastState->vertexLights[0] = l0;
 		SWRastState->vertexLights[1] = l1;
@@ -164,39 +201,51 @@ void SWRast_SetVertexLights(fixed_t l0, fixed_t l1, fixed_t l2)
 
 UINT8 SWRast_GetCullMode(void)
 {
+	if (SWRastState == NULL)
+		return 0;
+
 	return SWRastState->cullMode;
 }
 
 void SWRast_SetCullMode(UINT8 mode)
 {
-	SWRastState->cullMode = mode;
+	if (SWRastState)
+		SWRastState->cullMode = mode;
 }
 
 void SWRast_EnableFragmentRead(UINT8 flags)
 {
-	SWRastState->renderTarget.fragmentRead |= flags;
+	if (SWRastState)
+		SWRastState->renderTarget.fragmentRead |= flags;
 }
 
 void SWRast_EnableFragmentWrite(UINT8 flags)
 {
-	SWRastState->renderTarget.fragmentWrite |= flags;
+	if (SWRastState)
+		SWRastState->renderTarget.fragmentWrite |= flags;
 }
 
 void SWRast_DisableFragmentRead(UINT8 flags)
 {
-	SWRastState->renderTarget.fragmentRead &= ~flags;
+	if (SWRastState)
+		SWRastState->renderTarget.fragmentRead &= ~flags;
 }
 
 void SWRast_DisableFragmentWrite(UINT8 flags)
 {
-	SWRastState->renderTarget.fragmentWrite &= ~flags;
+	if (SWRastState)
+		SWRastState->renderTarget.fragmentWrite &= ~flags;
 }
 
 static void SWRast_SetViewTransform(fixed_t x, fixed_t y, fixed_t z, angle_t angle)
 {
 	SWRast_State *state = SWRastState;
-	SWRast_Transform3D *transform = &(state->camera.transform);
+	SWRast_Transform3D *transform;
 
+	if (state == NULL)
+		return;
+
+	transform = &(state->camera.transform);
 	transform->translation.x = x;
 	transform->translation.y = z;
 	transform->translation.z = y;
@@ -219,6 +268,9 @@ static void SWRast_SetViewTransform(fixed_t x, fixed_t y, fixed_t z, angle_t ang
 
 void SWRast_SetViewport(INT32 width, INT32 height)
 {
+	if (SWRastState == NULL)
+		return;
+
 	SWRastState->fov = fovtan;
 
 	SWRast_SetCullMode(SWRAST_CULL_FRONT);
@@ -250,6 +302,9 @@ void SWRast_SetViewport(INT32 width, INT32 height)
 
 void SWRast_SetModelView(void)
 {
+	if (SWRastState == NULL)
+		return;
+
 	SWRast_SetViewTransform(viewx, viewy, viewz, viewangle);
 
 	SWRast_DisableBlending(); // Arkus: Set pixel drawer.
@@ -269,12 +324,18 @@ void SWRast_InitCamera(SWRast_Camera *cam)
 
 void SWRast_OnFrame(void)
 {
+	if (SWRastState == NULL)
+		return;
+
 	SWRastState->numRenderedMeshes = 0;
 	SWRastState->numRenderedTriangles = 0;
 }
 
 void SWRast_OnPlayerFrame(void)
 {
+	if (SWRastState == NULL)
+		return;
+
 	SWRast_SetModelView();
 	SWRast_SetMask(0);
 }
@@ -283,6 +344,10 @@ void SWRast_ZBufferClear(void)
 {
 #if SWRAST_Z_BUFFER != 0
 	INT32 i;
+
+	if (renderTarget == NULL)
+		return;
+
 	for (i = 0; i < vid.width * vid.height; i++)
 		renderTarget->zBuffer[i] = SWRAST_MAX_ZBUFFER_DEPTH;
 #endif
@@ -292,6 +357,10 @@ void SWRast_StencilBufferClear(void)
 {
 #if SWRAST_STENCIL_BUFFER
 	size_t i;
+
+	if (renderTarget == NULL)
+		return;
+
 	for (i = 0; i < renderTarget->stencilBufferSize; i++)
 		renderTarget->stencilBuffer[i] = 0;
 #endif
@@ -302,6 +371,9 @@ void SWRast_StencilBufferClear(void)
 fixed_t SWRast_ZBufferRead(INT16 x, INT16 y)
 {
 #if SWRAST_Z_BUFFER != 0
+	if (!SWRAST_DEPTH_BUFFER_POINTER)
+		return SWRAST_MAX_ZBUFFER_DEPTH;
+
 	return SWRAST_DEPTH_BUFFER_POINTER[y * SWRAST_RESOLUTION_X + x];
 #else
 	MACRO_UNUSED(x);
@@ -314,7 +386,8 @@ fixed_t SWRast_ZBufferRead(INT16 x, INT16 y)
 void SWRast_ZBufferWrite(INT16 x, INT16 y, fixed_t value)
 {
 #if SWRAST_Z_BUFFER != 0
-	SWRAST_DEPTH_BUFFER_POINTER[y * SWRAST_RESOLUTION_X + x] = value;
+	if (SWRAST_DEPTH_BUFFER_POINTER)
+		SWRAST_DEPTH_BUFFER_POINTER[y * SWRAST_RESOLUTION_X + x] = value;
 #else
 	MACRO_UNUSED(x);
 	MACRO_UNUSED(y);
@@ -325,6 +398,9 @@ void SWRast_ZBufferWrite(INT16 x, INT16 y, fixed_t value)
 // Store the current viewpoint
 void SWRast_ViewpointStore(void)
 {
+	if (sceneViewpoint == NULL)
+		return;
+
 	sceneViewpoint->viewx = viewx;
 	sceneViewpoint->viewy = viewy;
 	sceneViewpoint->viewz = viewz;
@@ -337,6 +413,9 @@ void SWRast_ViewpointStore(void)
 // Restore the stored viewpoint
 void SWRast_ViewpointRestore(void)
 {
+	if (sceneViewpoint == NULL)
+		return;
+
 	viewx = sceneViewpoint->viewx;
 	viewy = sceneViewpoint->viewy;
 	viewz = sceneViewpoint->viewz;
@@ -344,6 +423,7 @@ void SWRast_ViewpointRestore(void)
 	aimingangle = sceneViewpoint->aimingangle;
 	viewcos = sceneViewpoint->viewcos;
 	viewsin = sceneViewpoint->viewsin;
+
 	SWRast_SetModelView();
 }
 
@@ -374,20 +454,28 @@ void SWRast_ViewpointRestoreFromSprite(vissprite_t *spr)
 
 INT32 SWRast_GetNumRenderedMeshes(void)
 {
+	if (SWRastState == NULL)
+		return 0;
+
 	return SWRastState->numRenderedMeshes;
 }
 
 INT32 SWRast_GetNumRenderedTriangles(void)
 {
+	if (SWRastState == NULL)
+		return 0;
+
 	return SWRastState->numRenderedTriangles;
 }
 
 void SWRast_AddNumRenderedMeshes(void)
 {
-	SWRastState->numRenderedMeshes++;
+	if (SWRastState)
+		SWRastState->numRenderedMeshes++;
 }
 
 void SWRast_AddNumRenderedTriangles(void)
 {
-	SWRastState->numRenderedTriangles++;
+	if (SWRastState)
+		SWRastState->numRenderedTriangles++;
 }
