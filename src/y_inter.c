@@ -2060,8 +2060,8 @@ void Y_EndIntermission(void)
 	usebuffer = false;
 }
 
+#define UNLOAD(x) if (x) {Z_ChangeTag(x, PU_CACHE);} x = NULL;
 #define CLEANUP(x) x = NULL;
-#define UNLOAD(x) if (x) {Z_Free(x);} CLEANUP(x)
 
 //
 // Y_UnloadData
