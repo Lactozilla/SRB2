@@ -4,9 +4,7 @@
 	dependencies, using only 32bit integer arithmetics.
 
 	author: Miloslav Ciz
-	license: CC0 1.0 (public domain)
-					 found at https://creativecommons.org/publicdomain/zero/1.0/
-					 + additional waiver of all IP
+	license: CC0 1.0 (public domain) found at https://creativecommons.org/publicdomain/zero/1.0/ + additional waiver of all IP
 	version: 0.852d
 
 	--------------------
@@ -43,12 +41,11 @@ static inline boolean SpanZTest(
 
 #if SWRAST_Z_BUFFER == 2
 	#define cmp <= /* For reduced z-buffer we need equality test, because
-										otherwise pixels at the maximum depth (255) would never be
-										drawn over the background (which also has the depth of
-										255). */
+					otherwise pixels at the maximum depth (255) would never be
+					drawn over the background (which also has the depth of 255). */
 #else
 	#define cmp <  /* For normal z-buffer we leave out equality test to not waste
-										time by drawing over already drawn pixls. */
+					time by drawing over already drawn pixls. */
 #endif
 
 	if (depth cmp SWRAST_DEPTH_BUFFER_POINTER[index])
@@ -139,15 +136,15 @@ void SWRast_RasterizeTriangle(
 {
 	SWRast_Fragment p;
 
-	SWRast_Vec4 *tPointSS, *lPointSS, *rPointSS; /* points in Screen Space (in fixed_t, normalized by FRACUNIT) */
+	SWRast_Vec4 *tPointSS, *lPointSS, *rPointSS; // points in Screen Space (in fixed_t, normalized by FRACUNIT)
 
 	fixed_t *barycentric0; // bar. coord that gets higher from L to R
 	fixed_t *barycentric1; // bar. coord that gets higher from R to L
 	fixed_t *barycentric2; // bar. coord that gets higher from bottom up
 
 	INT16 splitY; // Y of the vertically middle point of the triangle
-	INT16 endY;   // bottom Y of the whole triangle
-	INT32 splitOnLeft;      /* whether splitY is the y coord. of left or right point */
+	INT16 endY; // bottom Y of the whole triangle
+	INT32 splitOnLeft; // whether splitY is the y coord. of left or right point
 
 	INT16 currentY;
 
@@ -161,7 +158,7 @@ void SWRast_RasterizeTriangle(
 		lErr,    rErr,     // current error (Bresenham)
 		lErrCmp, rErrCmp,  // helper for deciding comparison (> vs >=)
 		lErrAdd, rErrAdd,  // error value to add in each Bresenham cycle
-		lErrSub, rErrSub;  // error value to substract when moving in x direction
+		lErrSub, rErrSub;  // error value to subtract when moving in x direction
 
 	SWRast_FastLerpState lSideFLS, rSideFLS;
 
@@ -171,8 +168,8 @@ void SWRast_RasterizeTriangle(
 
 #if SWRAST_PERSPECTIVE_CORRECTION != 0
 	fixed_t
-		tPointRecipZ, lPointRecipZ, rPointRecipZ, /* Reciprocals of the depth of each triangle point. */
-		lRecip0, lRecip1, rRecip0, rRecip1;       /* Helper variables for swapping the above after split. */
+		tPointRecipZ, lPointRecipZ, rPointRecipZ, // Reciprocals of the depth of each triangle point.
+		lRecip0, lRecip1, rRecip0, rRecip1;       // Helper variables for swapping the above after split.
 #endif
 
 	InitPixelInfo(&p);
@@ -220,7 +217,6 @@ void SWRast_RasterizeTriangle(
 		(rPointSS->y > lPointSS->y ? rPointSS->y : lPointSS->y) - tPointSS->y;
 
 	// now draw the triangle line by line:
-
 	if (rPointSS->y <= lPointSS->y)
 	{
 		splitY = rPointSS->y;
@@ -248,12 +244,12 @@ void SWRast_RasterizeTriangle(
 
 		 - Move vertically by pixels and accumulate the error (abs(dx/dy)).
 		 - If the error is greater than one (crossed the next pixel center), keep
-			 moving horizontally and substracting 1 from the error until it is less
+			 moving horizontally and subtracting 1 from the error until it is less
 			 than 1 again.
 		 - To make this INTEGER ONLY, scale the case so that distance between
 			 pixels is equal to dy (instead of 1). This way the error becomes
 			 dx/dy * dy == dx, and we're comparing the error to (and potentially
-			 substracting) 1 * dy == dy. */
+			 subtracting) 1 * dy == dy. */
 
 #if SWRAST_COMPUTE_LERP_DEPTH
 	#define initDepthFLS(s,p1,p2)\
@@ -289,7 +285,7 @@ void SWRast_RasterizeTriangle(
 		else\
 			{s##Err = s##Dy; s##ErrCmp = 1;}\
 		s##ErrAdd = SWRast_abs(s##Dx);\
-		s##ErrSub = s##Dy != 0 ? s##Dy : 1; /* don't allow 0, could lead to an infinite substracting loop */
+		s##ErrSub = s##Dy != 0 ? s##Dy : 1; // don't allow 0, could lead to an infinite subtracting loop
 
 	#define stepSide(s)\
 		while (s##Err - s##Dy >= s##ErrCmp)\
@@ -307,8 +303,8 @@ void SWRast_RasterizeTriangle(
 		 velues can be computed. See
 		 http://www.lysator.liu.se/~mikaelk/doc/perspectivetexture/ */
 
+	// This numerator is a number by which we divide values for the reciprocals.
 	#define Z_RECIP_NUMERATOR (16386 * FRACUNIT)
-	/* ^ This numerator is a number by which we divide values for the reciprocals. */
 
 	tPointRecipZ = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(tPointSS->z));
 	lPointRecipZ = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(lPointSS->z));
@@ -328,17 +324,15 @@ void SWRast_RasterizeTriangle(
 	#define manageSplitPerspective(b0,b1) ;
 #endif
 
-	// clip to the screen in y dimension:
-
+	// Clip to the screen in y dimension
+	// Clipping above the screen (y < 0) can't be easily done here, will be handled inside the loop.
 	endY = SWRast_min(endY,SWRastState->viewWindow[SWRAST_VIEW_WINDOW_Y2]);
 
-	/* Clipping above the screen (y < 0) can't be easily done here, will be
-		 handled inside the loop. */
-
-	while (currentY < endY)	/* draw the triangle from top to bottom -- the
-							bottom-most row is left out because, following
-							from the rasterization rules (see start of the
-							file), it is to never be rasterized. */
+	// Draw the triangle from top to bottom;
+	// The bottom-most row is left out because, following
+	// from the rasterization rules (see start of the file),
+	// it is to never be rasterized.
+	while (currentY < endY)
 	{
 		if (currentY == splitY) // reached a vertical split of the triangle?
 		{
@@ -368,7 +362,7 @@ void SWRast_RasterizeTriangle(
 		stepSide(r)
 		stepSide(l)
 
-		/* clipping of pixels whose y < 0 (can't be easily done outside the loop because of the Bresenham-like algorithm steps) */
+		// clipping of pixels whose y < 0 (can't be easily done outside the loop because of the Bresenham-like algorithm steps)
 		if (currentY >= SWRastState->viewWindow[SWRAST_VIEW_WINDOW_Y1])
 		{
 			// draw the horizontal line
@@ -428,7 +422,6 @@ void SWRast_RasterizeTriangle(
 			p.y = currentY;
 
 			// clip to the screen in x dimension:
-
 			lXClipped = lX;
 			rXClipped = SWRast_min(rX,SWRastState->spanPortalClip[1]);
 
@@ -447,9 +440,7 @@ void SWRast_RasterizeTriangle(
 			}
 
 #if SWRAST_PERSPECTIVE_CORRECTION != 0
-			i = lXClipped - lX;  /* helper var to save one
-															substraction in the inner
-															loop */
+			i = lXClipped - lX; // helper var to save one subtraction in the inner loop
 #endif
 
 #if SWRAST_PERSPECTIVE_CORRECTION == 2
@@ -494,7 +485,6 @@ void SWRast_RasterizeTriangle(
 				if (rowCount >= SWRAST_PC_APPROX_LENGTH)
 				{
 					// init the linear interpolation to the next PC correct value
-
 					fixed_t nextI = i + SWRAST_PC_APPROX_LENGTH;
 
 					rowCount = 0;
@@ -520,7 +510,6 @@ void SWRast_RasterizeTriangle(
 							 have to clamp to the actual end of the triangle here. */
 
 						fixed_t maxI = SWRast_NonZero(rowLength - i);
-
 						fixed_t nextValue, nextDepthScaled = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(rRecipZ)) << SWRAST_FAST_LERP_QUALITY;
 
 						depthPC.stepScaled = (nextDepthScaled - depthPC.valueScaled) / maxI;
@@ -537,7 +526,7 @@ void SWRast_RasterizeTriangle(
 				p.depth = GetFastLerpValue(depthFLS);
 				StepFastLerp(depthFLS);
 	#endif
-#else   // !SWRAST_COMPUTE_DEPTH
+#else // !SWRAST_COMPUTE_DEPTH
 				p.depth = (tPointSS->z + lPointSS->z + rPointSS->z) / 3;
 #endif
 

@@ -4,9 +4,7 @@
 	dependencies, using only 32bit integer arithmetics.
 
 	author: Miloslav Ciz
-	license: CC0 1.0 (public domain)
-					 found at https://creativecommons.org/publicdomain/zero/1.0/
-					 + additional waiver of all IP
+	license: CC0 1.0 (public domain) found at https://creativecommons.org/publicdomain/zero/1.0/ + additional waiver of all IP
 	version: 0.852d
 
 	--------------------
@@ -94,7 +92,7 @@ void SWRast_MakeTranslationMatrix(
 	fixed_t offsetZ,
 	SWRast_Mat4 *m);
 
-/** Makes a scaling matrix. DON'T FORGET: scale of 1.0 is set with FRACUNIT! */
+/** Makes a scaling matrix. */
 void SWRast_MakeScaleMatrix(
 	fixed_t scaleX,
 	fixed_t scaleY,
