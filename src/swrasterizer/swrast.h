@@ -75,8 +75,6 @@ void SWRast_SetVertexLights(fixed_t l0, fixed_t l1, fixed_t l2);
 void SWRast_SetClipRanges(INT16 clipleft, INT16 clipright);
 void SWRast_SetClipTables(INT16 *clipbot, INT16 *cliptop);
 
-void SWRast_InitCamera(SWRast_Camera *cam);
-
 void SWRast_RenderTriangle(SWRast_Triangle *tri);
 
 UINT8 SWRast_ProcessFragment(SWRast_Fragment *p);
@@ -103,42 +101,25 @@ INT32 SWRast_GetNumRenderedTriangles(void);
 void SWRast_AddNumRenderedMeshes(void);
 void SWRast_AddNumRenderedTriangles(void);
 
-/** Draws a triangle according to given config. The vertices are specified in
-	Screen Space space (pixels). If perspective correction is enabled, each
-	vertex has to have a depth (Z position in camera space) specified in the Z
-	component. */
-void SWRast_RasterizeTriangle(
-	SWRast_Vec4 point0,
-	SWRast_Vec4 point1,
-	SWRast_Vec4 point2);
+// Draws a triangle according to given config. The vertices are specified in
+// screen space (pixels). If perspective correction is enabled, each vertex
+// has to have a depth (Z position in camera space) specified in the Z component.
+void SWRast_RasterizeTriangle(SWRast_Vec4 point0, SWRast_Vec4 point1, SWRast_Vec4 point2);
 
-/** Writes a value (not necessarily depth! depends on the format of z-buffer)
-	to z-buffer (if enabled). Does NOT check boundaries! */
+// Writes a value (not necessarily depth! depends on the format of z-buffer)
+// to z-buffer (if enabled). Does NOT check boundaries!
 void SWRast_ZBufferWrite(INT16 x, INT16 y, fixed_t value);
 
-/** Reads a value (not necessarily depth! depends on the format of z-buffer)
-	from z-buffer (if enabled). Does NOT check boundaries! */
+// Reads a value (not necessarily depth! depends on the format of z-buffer)
+// from z-buffer (if enabled). Does NOT check boundaries!
 fixed_t SWRast_ZBufferRead(INT16 x, INT16 y);
 
-/**
-	Projects a triangle to the screen. If enabled, a triangle can be potentially
-	subdivided into two if it crosses the near plane, in which case two projected
-	triangles are returned (return value will be 1).
-*/
-UINT8 SWRast_ProjectTriangle(
-	const SWRast_Triangle *triangle,
-	SWRast_Mat4 *matrix,
-	UINT32 focalLength,
-	SWRast_Vec4 transformed[6]);
+// Projects a triangle to the screen.
+// If enabled, a triangle can be potentially subdivided into two if it crosses the near plane,
+// in which case two projected triangles are returned.
+UINT8 SWRast_ProjectTriangle(const SWRast_Triangle *triangle, SWRast_Mat4 *matrix, SWRast_Vec4 transformed[6]);
 
-/** Determines the winding of a triangle, returns 1 (CW, clockwise), -1 (CCW,
-	counterclockwise) or 0 (points lie on a single line). */
-SINT8 SWRast_TriangleWinding(
-	INT16 x0,
-	INT16 y0,
-	INT16 x1,
-	INT16 y1,
-	INT16 x2,
-	INT16 y2);
+// Determines the winding of a triangle, returns 1 (CW, clockwise), -1 (CCW, counterclockwise) or 0 (points lie on a single line).
+SINT8 SWRast_TriangleWinding(INT16 x0, INT16 y0, INT16 x1, INT16 y1, INT16 x2, INT16 y2);
 
 #endif // _SWRAST_H_

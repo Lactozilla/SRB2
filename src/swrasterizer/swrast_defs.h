@@ -1,7 +1,6 @@
 /*
 	Simple realtime 3D software rasterization renderer. It is fast, focused on
-	resource-limited computers, located in a single C header file, with no
-	dependencies, using only 32bit integer arithmetics.
+	resource-limited computers, with no dependencies, using only 32bit integer arithmetic.
 
 	author: Miloslav Ciz
 	license: CC0 1.0 (public domain) found at https://creativecommons.org/publicdomain/zero/1.0/ + additional waiver of all IP
@@ -48,22 +47,21 @@
 	near plane. These are problematic and require special handling. Possible
 	values:
 
-		0: Strictly cull any triangle crossing the near plane. This will make such
-			 triangles disappear. This is good for performance or models viewed only
-			 from at least small distance.
-		1: Forcefully push the vertices crossing near plane in front of it. This is
-			 a cheap technique that can be good enough for displaying simple
-			 environments on slow devices, but texturing and geometric artifacts/warps
-			 will appear.
-		2: Geometrically correct the triangles crossing the near plane. This may
-			 result in some triangles being subdivided into two and is a little more
-			 expensive, but the results will be geometrically correct, even though
-			 barycentric correction is not performed so texturing artifacts will
-			 appear.
+		0: Strictly cull any triangle crossing the near plane. This will make such triangles disappear.
+		This is good for performance or models viewed only from at least small distance.
+
+		1: Forcefully push the vertices crossing near plane in front of it.
+		This is a cheap technique that can be good enough for displaying simple environments on slow devices,
+		but texturing and geometric artifacts/warps will appear.
+
+		2: Geometrically correct the triangles crossing the near plane.
+		This may result in some triangles being subdivided into two and
+		is a little more expensive, but the results will be geometrically correct,
+		even though barycentric correction is not performed so texturing artifacts will appear.
+
 		3: NOT IMPLEMENTED YET
-			 Perform both geometrical and barycentric correction of triangle crossing
-			 the near plane. This is significantly more expensive but results in
-			 correct rendering.
+		Perform both geometrical and barycentric correction of triangle crossing
+		the near plane. This is significantly more expensive but results in correct rendering.
 	*/
 
 	#define SWRAST_NEAR_CROSS_STRATEGY 0
@@ -76,8 +74,8 @@
 	- 0: No perspective correction. Fastest, inaccurate from most angles.
 	- 1: Per-pixel perspective correction, accurate but very expensive.
 	- 2: Approximation (computing only at every SWRAST_PC_APPROX_LENGTHth pixel).
-			 Quake-style approximation is used, which only computes the PC after
-			 SWRAST_PC_APPROX_LENGTH pixels. This is reasonably accurate and fast. */
+	Quake-style approximation is used, which only computes the PC after
+	SWRAST_PC_APPROX_LENGTH pixels. This is reasonably accurate and fast. */
 
 	#define SWRAST_PERSPECTIVE_CORRECTION 0
 #endif
@@ -100,6 +98,7 @@
 	this off can save performance. Depth will still be accessible in
 	SWRast_Fragment, but will be constant -- equal to center point depth -- over
 	the whole triangle. */
+
 	#define SWRAST_COMPUTE_DEPTH 1
 #endif
 
@@ -108,14 +107,15 @@
 	Possible values:
 
 	- 0: Don't use z-buffer. This saves a lot of memory, but visibility checking
-			 won't be pixel-accurate and has to mostly be done by other means
-			 (typically sorting).
-	- 1: Use full z-buffer (of FRACUNITs) for visibiltiy determination. This is
-			 the most accurate option (and also a fast one), but requires a big
-			 amount of memory.
+	won't be pixel-accurate and has to mostly be done by other means.
+
+	- 1: Use full fixed-point z-buffer for visibility determination. This is
+	the most accurate option (and also a fast one), but requires a big
+	amount of memory.
+
 	- 2: Use reduced-size z-buffer (of bytes). This is fast and somewhat
-			 accurate, but inaccuracies can occur and a considerable amount of memory
-			 is needed. */
+	accurate, but inaccuracies can occur and a considerable amount of memory
+	is needed. */
 
 	#define SWRAST_Z_BUFFER 1
 #endif

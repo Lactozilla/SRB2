@@ -1,7 +1,6 @@
 /*
 	Simple realtime 3D software rasterization renderer. It is fast, focused on
-	resource-limited computers, located in a single C header file, with no
-	dependencies, using only 32bit integer arithmetics.
+	resource-limited computers, with no dependencies, using only 32bit integer arithmetic.
 
 	author: Miloslav Ciz
 	license: CC0 1.0 (public domain) found at https://creativecommons.org/publicdomain/zero/1.0/ + additional waiver of all IP
@@ -40,12 +39,14 @@ static inline boolean SpanZTest(
 	depth = SWRast_ZBufferFormat(depth);
 
 #if SWRAST_Z_BUFFER == 2
-	#define cmp <= /* For reduced z-buffer we need equality test, because
-					otherwise pixels at the maximum depth (255) would never be
-					drawn over the background (which also has the depth of 255). */
+	// For reduced z-buffer we need equality test, because
+	// otherwise pixels at the maximum depth (255) would never be
+	// drawn over the background (which also has the depth of 255).
+	#define cmp <=
 #else
-	#define cmp <  /* For normal z-buffer we leave out equality test to not waste
-					time by drawing over already drawn pixls. */
+	// For normal z-buffer we leave out equality test to not waste
+	// time by drawing over already drawn pixls.
+	#define cmp <
 #endif
 
 	if (depth cmp SWRAST_DEPTH_BUFFER_POINTER[index])
@@ -66,9 +67,7 @@ static inline boolean SpanZTest(
 	index = index >> 3; \
 	val = SWRAST_STENCIL_BUFFER_POINTER[index]; \
 
-static inline boolean SpanStencilTest(
-	INT16 x,
-	INT16 y)
+static inline boolean SpanStencilTest(INT16 x, INT16 y)
 {
 	STENCIL_DECL
 
@@ -78,9 +77,7 @@ static inline boolean SpanStencilTest(
 	return true;
 }
 
-static inline void SpanStencilWrite(
-	INT16 x,
-	INT16 y)
+static inline void SpanStencilWrite(INT16 x, INT16 y)
 {
 	STENCIL_DECL
 
@@ -105,18 +102,19 @@ static inline void InitPixelInfo(SWRast_Fragment *p)
 	p->previousZ = 0;
 }
 
-/** Serves to accelerate linear interpolation for performance-critical
-	code. Functions such as SWRast_Interpolate require division to compute each
-	interpolated value, while SWRast_FastLerpState only requires a division for
-	the initiation and a shift for retrieving each interpolated value.
+// Serves to accelerate linear interpolation for performance-critical
+// code. Functions such as SWRast_Interpolate require division to compute each
+// interpolated value, while SWRast_FastLerpState only requires a division for
+// the initiation and a shift for retrieving each interpolated value.
 
-	SWRast_FastLerpState stores a value and a step, both scaled (shifted by
-	SWRAST_FAST_LERP_QUALITY) to increase precision. The step is being added to the
-	value, which achieves the interpolation. This will only be useful for
-	interpolations in which we need to get the interpolated value in every step.
+// SWRast_FastLerpState stores a value and a step, both scaled (shifted by
+// SWRAST_FAST_LERP_QUALITY) to increase precision. The step is being added to the
+// value, which achieves the interpolation. This will only be useful for
+// interpolations in which we need to get the interpolated value in every step.
 
-	BEWARE! Shifting a negative value is undefined, so handling shifting of
-	negative values has to be done cleverly. */
+// BEWARE! Shifting a negative value is undefined, so handling shifting of
+// negative values has to be done cleverly.
+
 typedef struct
 {
 	fixed_t valueScaled;
@@ -129,10 +127,7 @@ typedef struct
 #define StepFastLerp(state)\
 	state.valueScaled += state.stepScaled
 
-void SWRast_RasterizeTriangle(
-	SWRast_Vec4 point0,
-	SWRast_Vec4 point1,
-	SWRast_Vec4 point2)
+void SWRast_RasterizeTriangle(SWRast_Vec4 point0, SWRast_Vec4 point1, SWRast_Vec4 point2)
 {
 	SWRast_Fragment p;
 
@@ -232,24 +227,24 @@ void SWRast_RasterizeTriangle(
 
 	currentY = tPointSS->y;
 
-	/* We'll be using an algorithm similar to Bresenham line algorithm. The
-		 specifics of this algorithm are among others:
+	// We'll be using an algorithm similar to Bresenham line algorithm. The
+	// specifics of this algorithm are among others:
 
-		 - drawing possibly NON-CONTINUOUS line
-		 - NOT tracing the line exactly, but rather rasterizing one the right
-			 side of it, according to the pixel CENTERS, INCLUDING the pixel
-			 centers
+	// - drawing possibly NON-CONTINUOUS line
+	// - NOT tracing the line exactly, but rather rasterizing one the right
+	// side of it, according to the pixel CENTERS, INCLUDING the pixel
+	// centers
 
-		 The principle is this:
+	// The principle is this:
 
-		 - Move vertically by pixels and accumulate the error (abs(dx/dy)).
-		 - If the error is greater than one (crossed the next pixel center), keep
-			 moving horizontally and subtracting 1 from the error until it is less
-			 than 1 again.
-		 - To make this INTEGER ONLY, scale the case so that distance between
-			 pixels is equal to dy (instead of 1). This way the error becomes
-			 dx/dy * dy == dx, and we're comparing the error to (and potentially
-			 subtracting) 1 * dy == dy. */
+	// - Move vertically by pixels and accumulate the error (abs(dx/dy)).
+	// - If the error is greater than one (crossed the next pixel center), keep
+	// moving horizontally and subtracting 1 from the error until it is less
+	// than 1 again.
+	// - To make this INTEGER ONLY, scale the case so that distance between
+	// pixels is equal to dy (instead of 1). This way the error becomes
+	// dx/dy * dy == dx, and we're comparing the error to (and potentially
+	// subtracting) 1 * dy == dy.
 
 #if SWRAST_COMPUTE_LERP_DEPTH
 	#define initDepthFLS(s,p1,p2)\
@@ -260,11 +255,12 @@ void SWRast_RasterizeTriangle(
 	#define initDepthFLS(s,p1,p2) ;
 #endif
 
-	/* init side for the algorithm, params:
-		 s - which side (l or r)
-		 p1 - point from (t, l or r)
-		 p2 - point to (t, l or r)
-		 down - whether the side coordinate goes top-down or vice versa */
+	// init side for the algorithm, params:
+	//   s - which side (l or r)
+	//   p1 - point from (t, l or r)
+	//   p2 - point to (t, l or r)
+	//   down - whether the side coordinate goes top-down or vice versa
+
 	#define initSide(s,p1,p2,down)\
 		s##X = p1##PointSS->x;\
 		s##Dx = p2##PointSS->x - p1##PointSS->x;\
@@ -299,9 +295,8 @@ void SWRast_RasterizeTriangle(
 	initSide(l,t,l,1)
 
 #if SWRAST_PERSPECTIVE_CORRECTION != 0
-	/* PC is done by linearly interpolating reciprocals from which the corrected
-		 velues can be computed. See
-		 http://www.lysator.liu.se/~mikaelk/doc/perspectivetexture/ */
+	// PC is done by linearly interpolating reciprocals from which the corrected
+	// values can be computed. See http://www.lysator.liu.se/~mikaelk/doc/perspectivetexture/
 
 	// This numerator is a number by which we divide values for the reciprocals.
 	#define Z_RECIP_NUMERATOR (16386 * FRACUNIT)
@@ -328,9 +323,8 @@ void SWRast_RasterizeTriangle(
 	// Clipping above the screen (y < 0) can't be easily done here, will be handled inside the loop.
 	endY = SWRast_min(endY,SWRastState->viewWindow[SWRAST_VIEW_WINDOW_Y2]);
 
-	// Draw the triangle from top to bottom;
-	// The bottom-most row is left out because, following
-	// from the rasterization rules (see start of the file),
+	// Draw the triangle from top to bottom.
+	// The bottom-most row is left out because, following from the rasterization rules (see start of the file),
 	// it is to never be rasterized.
 	while (currentY < endY)
 	{
@@ -373,14 +367,14 @@ void SWRast_RasterizeTriangle(
 #endif
 
 #if SWRAST_PERSPECTIVE_CORRECTION == 2
+			// These interpolate values between row segments (lines of pixels
+			// of SWRAST_PC_APPROX_LENGTH length). After each row segment perspective
+			// correction is recomputed.
+
 			SWRast_FastLerpState
 				depthPC, // interpolates depth between row segments
 				b0PC,    // interpolates barycentric0 between row segments
 				b1PC;    // interpolates barycentric1 between row segments
-
-			/* ^ These interpolate values between row segments (lines of pixels
-				of SWRAST_PC_APPROX_LENGTH length). After each row segment perspective
-				correction is recomputed. */
 
 			SINT8 rowCount;
 #endif
@@ -503,11 +497,11 @@ void SWRast_RasterizeTriangle(
 					}
 					else
 					{
-						/* A special case where we'd be interpolating outside the triangle.
-							 It seems like a valid approach at first, but it creates a bug
-							 in a case when the rasaterized triangle is near screen 0 and can
-							 actually never reach the extrapolated screen position. So we
-							 have to clamp to the actual end of the triangle here. */
+						// A special case where we'd be interpolating outside the triangle.
+						// It seems like a valid approach at first, but it creates a bug
+						// in a case when the rasaterized triangle is near screen 0 and can
+						// actually never reach the extrapolated screen position. So we
+						// have to clamp to the actual end of the triangle here.
 
 						fixed_t maxI = SWRast_NonZero(rowLength - i);
 						fixed_t nextValue, nextDepthScaled = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(rRecipZ)) << SWRAST_FAST_LERP_QUALITY;

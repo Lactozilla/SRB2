@@ -120,12 +120,6 @@ typedef struct
 
 typedef struct
 {
-	fixed_t focalLength;       ///< Defines the field of view (FOV).
-	SWRast_Transform3D transform;
-} SWRast_Camera;
-
-typedef struct
-{
 	INT16 x;          ///< Screen X coordinate.
 	INT16 y;          ///< Screen Y coordinate.
 
@@ -169,6 +163,7 @@ typedef struct
 
 typedef struct
 {
+	SWRast_Transform3D transform;
 	fixed_t viewx, viewy, viewz;
 	angle_t viewangle, aimingangle;
 	fixed_t viewcos, viewsin;
@@ -178,12 +173,11 @@ typedef struct
 {
 	SWRast_RenderTarget renderTarget;
 	SWRast_Viewpoint viewpoint;
-	SWRast_Camera camera;
 
 	fixed_t fov;
 	UINT8 cullMode;
 
-	SWRast_Mat4 projectionViewMatrix;
+	SWRast_Mat4 viewProjectionMatrix;
 	SWRast_Mat4 modelMatrix;
 
 	boolean computeLight;

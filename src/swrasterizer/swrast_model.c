@@ -117,7 +117,7 @@ static void SetTransform(mobj_t *mobj, modelinfo_t *md2, spriteframe_t *sprframe
 	if (mobj->eflags & MFE_VERTICALFLIP)
 		mTransform->translation.y += mobj->height;
 
-	SWRast_MakeWorldMatrix(mTransform, &SWRastState->modelMatrix);
+	SWRast_MakeModelMatrix(mTransform, &SWRastState->modelMatrix);
 
 	if (SWRastState->modelLighting)
 	{

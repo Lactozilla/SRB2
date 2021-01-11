@@ -1,58 +1,63 @@
-// SONIC ROBO BLAST 2
-//-----------------------------------------------------------------------------
-// Copyright (C) 2021 by Jaime Ita Passos.
-//
-// This program is free software distributed under the
-// terms of the GNU General Public License, version 2.
-// See the 'LICENSE' file for more details.
-//-----------------------------------------------------------------------------
-/// \file  swrast_tris.c
-/// \brief Triangle rendering
+/*
+	Simple realtime 3D software rasterization renderer. It is fast, focused on
+	resource-limited computers, with no dependencies, using only 32bit integer arithmetic.
+
+	author: Miloslav Ciz
+	license: CC0 1.0 (public domain) found at https://creativecommons.org/publicdomain/zero/1.0/ + additional waiver of all IP
+	version: 0.852d
+
+	--------------------
+
+	This work's goal is to never be encumbered by any exclusive intellectual
+	property rights. The work is therefore provided under CC0 1.0 + additional
+	WAIVER OF ALL INTELLECTUAL PROPERTY RIGHTS that waives the rest of
+	intellectual property rights not already waived by CC0 1.0. The WAIVER OF ALL
+	INTELLECTUAL PROPERTY RGHTS is as follows:
+
+	Each contributor to this work agrees that they waive any exclusive rights,
+	including but not limited to copyright, patents, trademark, trade dress,
+	industrial design, plant varieties and trade secrets, to any and all ideas,
+	concepts, processes, discoveries, improvements and inventions conceived,
+	discovered, made, designed, researched or developed by the contributor either
+	solely or jointly with others, which relate to this work or result from this
+	work. Should any waiver of such right be judged legally invalid or
+	ineffective under applicable law, the contributor hereby grants to each
+	affected person a royalty-free, non transferable, non sublicensable, non
+	exclusive, irrevocable and unconditional license to this right.
+*/
 
 #include "swrast.h"
 
-static void MapProjectedVertexToScreen(SWRast_Vec4 *vertex, fixed_t focalLength)
+static void MapProjectedVertexToScreen(SWRast_Vec4 *vertex)
 {
 	INT16 sX, sY;
 
+	// This firstly prevents zero division in the following z-divide and
+	// secondly "pushes" vertices that are in front of near a little bit forward,
+	// which makes them behave a bit better. If all three vertices end up exactly
+	// on the near plane, the triangle will be culled.
 	vertex->z = vertex->z >= SWRAST_NEAR_CLIPPING_PLANE ? vertex->z : SWRAST_NEAR_CLIPPING_PLANE;
-	/* ^ This firstly prevents zero division in the follwoing z-divide and
-		secondly "pushes" vertices that are in front of near a little bit forward,
-		which makes them behave a bit better. If all three vertices end up exactly
-		on NEAR, the triangle will be culled. */
 
-	SWRast_PerspectiveDivide(vertex,focalLength);
-	SWRast_MapProjectionPlaneToScreen(*vertex,&sX,&sY);
+	SWRast_PerspectiveDivide(vertex);
+	SWRast_MapProjectionPlaneToScreen(vertex, &sX, &sY);
 
 	vertex->x = sX + SWRastState->screenVertexOffset[0];
 	vertex->y = sY + SWRastState->screenVertexOffset[1];
 }
 
-static void ProjectVertex(
-	const SWRast_Vertex *vertex,
-	SWRast_Mat4 *projectionMatrix,
-	SWRast_Vec4 *result)
+static void ProjectVertex(const SWRast_Vertex *vertex, SWRast_Mat4 *projectionMatrix, SWRast_Vec4 *result)
 {
 	result->x = vertex->position.x;
 	result->y = vertex->position.y;
 	result->z = vertex->position.z;
 	result->w = FRACUNIT; // needed for translation
 
-	SWRast_MultVec3Mat4(result,projectionMatrix);
+	SWRast_MultVec3Mat4(result, projectionMatrix);
 
 	result->w = result->z;
 }
 
-/**
-	Projects a triangle to the screen. If enabled, a triangle can be potentially
-	subdivided into two if it crosses the near plane, in which case two projected
-	triangles are returned (return value will be 1).
-*/
-UINT8 SWRast_ProjectTriangle(
-	const SWRast_Triangle *triangle,
-	SWRast_Mat4 *matrix,
-	UINT32 focalLength,
-	SWRast_Vec4 transformed[6])
+UINT8 SWRast_ProjectTriangle(const SWRast_Triangle *triangle, SWRast_Mat4 *matrix, SWRast_Vec4 transformed[6])
 {
 	UINT8 result = 0;
 
@@ -119,9 +124,9 @@ UINT8 SWRast_ProjectTriangle(
 
 		transformed[infrontI[0]] = transformed[4];
 
-		MapProjectedVertexToScreen(&transformed[3],focalLength);
-		MapProjectedVertexToScreen(&transformed[4],focalLength);
-		MapProjectedVertexToScreen(&transformed[5],focalLength);
+		MapProjectedVertexToScreen(&transformed[3]);
+		MapProjectedVertexToScreen(&transformed[4]);
+		MapProjectedVertexToScreen(&transformed[5]);
 
 		result = 1;
 	}
@@ -129,9 +134,9 @@ UINT8 SWRast_ProjectTriangle(
 #undef interpolateVertex
 #endif // SWRAST_NEAR_CROSS_STRATEGY == 2
 
-	MapProjectedVertexToScreen(&transformed[0],focalLength);
-	MapProjectedVertexToScreen(&transformed[1],focalLength);
-	MapProjectedVertexToScreen(&transformed[2],focalLength);
+	MapProjectedVertexToScreen(&transformed[0]);
+	MapProjectedVertexToScreen(&transformed[1]);
+	MapProjectedVertexToScreen(&transformed[2]);
 
 	return result;
 }
@@ -159,9 +164,9 @@ static SINT8 TriangleIsVisible(
 #endif
 #if 0
 			|| clipTest(x-SWRastState->screenVertexOffset[0],<,SWRastState->viewWindow[SWRAST_VIEW_WINDOW_X1]) ||
-				 clipTest(x-SWRastState->screenVertexOffset[0],>=,SWRastState->viewWindow[SWRAST_VIEW_WINDOW_X2]) ||
-				 clipTest(y-SWRastState->screenVertexOffset[1],<,SWRastState->viewWindow[SWRAST_VIEW_WINDOW_Y1]) ||
-				 clipTest(y-SWRastState->screenVertexOffset[2],>,SWRastState->viewWindow[SWRAST_VIEW_WINDOW_Y2])
+			clipTest(x-SWRastState->screenVertexOffset[0],>=,SWRastState->viewWindow[SWRAST_VIEW_WINDOW_X2]) ||
+			clipTest(y-SWRastState->screenVertexOffset[1],<,SWRastState->viewWindow[SWRAST_VIEW_WINDOW_Y1]) ||
+			clipTest(y-SWRastState->screenVertexOffset[2],>,SWRastState->viewWindow[SWRAST_VIEW_WINDOW_Y2])
 #endif
 		)
 		return 0;
@@ -188,10 +193,8 @@ SINT8 SWRast_TriangleWinding(
 	INT16 x2,
 	INT16 y2)
 {
-	INT32 winding =
-		(y1 - y0) * (x2 - x1) - (x1 - x0) * (y2 - y1);
-		// ^ cross product for points with z == 0
-
+	// cross product for points with z == 0
+	INT32 winding = (y1 - y0) * (x2 - x1) - (x1 - x0) * (y2 - y1);
 	return winding > 0 ? 1 : (winding < 0 ? -1 : 0);
 }
 
@@ -207,9 +210,9 @@ void SWRast_RenderTriangle(SWRast_Triangle *tri)
 		for (i = 0; i < 4; ++i)
 			matrix[i][j] = SWRastState->modelMatrix[i][j];
 
-	SWRast_MultiplyMatrices(&matrix, &SWRastState->projectionViewMatrix);
+	SWRast_MultiplyMatrices(&matrix, &SWRastState->viewProjectionMatrix);
 
-	split = SWRast_ProjectTriangle(tri, &matrix, FRACUNIT, transformed);
+	split = SWRast_ProjectTriangle(tri, &matrix, transformed);
 
 	if (TriangleIsVisible(transformed[0], transformed[1], transformed[2], SWRast_GetCullMode()))
 	{

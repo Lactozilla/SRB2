@@ -50,17 +50,8 @@ UINT8 SWRast_ProcessFragment(SWRast_Fragment *p)
 	width = iwidth << FRACBITS;
 	height = iheight << FRACBITS;
 
-	u = SWRast_InterpolateBarycentric(
-									curTri->vertices[0].uv.u,
-									curTri->vertices[1].uv.u,
-									curTri->vertices[2].uv.u,
-									p->barycentric);
-
-	v = SWRast_InterpolateBarycentric(
-									curTri->vertices[0].uv.v,
-									curTri->vertices[1].uv.v,
-									curTri->vertices[2].uv.v,
-									p->barycentric);
+	u = SWRast_InterpolateBarycentric(curTri->vertices[0].uv.u, curTri->vertices[1].uv.u, curTri->vertices[2].uv.u, p->barycentric);
+	v = SWRast_InterpolateBarycentric(curTri->vertices[0].uv.v, curTri->vertices[1].uv.v, curTri->vertices[2].uv.v, p->barycentric);
 
 	u = SWRast_clamp(FixedMul(u, width)>>FRACBITS, 0, iwidth);
 	v = SWRast_clamp(FixedMul(v, height)>>FRACBITS, 0, iheight);

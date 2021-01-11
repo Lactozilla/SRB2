@@ -42,7 +42,7 @@ void SWRast_Init(void)
 	SWRastState->vertexShader = NULL;
 	SWRastState->fragmentShader = SWRast_ProcessFragment;
 
-	SWRast_InitCamera(&SWRastState->camera);
+	SWRast_InitTransform3D(&(sceneViewpoint->transform));
 
 	InitRenderTarget(&SWRastState->renderTarget);
 
@@ -245,7 +245,7 @@ static void SWRast_SetViewTransform(fixed_t x, fixed_t y, fixed_t z, angle_t ang
 	if (state == NULL)
 		return;
 
-	transform = &(state->camera.transform);
+	transform = &(sceneViewpoint->transform);
 	transform->translation.x = x;
 	transform->translation.y = z;
 	transform->translation.z = y;
@@ -254,7 +254,7 @@ static void SWRast_SetViewTransform(fixed_t x, fixed_t y, fixed_t z, angle_t ang
 	transform->rotation.z = 0;
 	transform->scale.z = state->fov;
 
-	SWRast_MakeCameraMatrix(transform, &state->projectionViewMatrix);
+	SWRast_MakeViewProjectionMatrix(transform, &state->viewProjectionMatrix);
 
 	state->viewWindow[SWRAST_VIEW_WINDOW_X1] = viewwindowx;
 	state->viewWindow[SWRAST_VIEW_WINDOW_X2] = viewwindowx + state->renderTarget.width;
@@ -314,12 +314,6 @@ void SWRast_SetModelView(void)
 
 	SWRastState->modelLighting = !!(cv_modellighting.value);
 	SWRastState->computeLight = SWRastState->modelLighting;
-}
-
-void SWRast_InitCamera(SWRast_Camera *cam)
-{
-	cam->focalLength = FRACUNIT;
-	SWRast_InitTransform3D(&(cam->transform));
 }
 
 void SWRast_OnFrame(void)

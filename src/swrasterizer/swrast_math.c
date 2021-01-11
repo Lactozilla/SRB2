@@ -1,17 +1,92 @@
-// SONIC ROBO BLAST 2
-//-----------------------------------------------------------------------------
-// Copyright (C) 2019-2021 by Jaime Ita Passos.
-// Copyright (C) 2019 by "Arkus-Kotan".
-// Copyright (C) 2017 by Krzysztof Kondrak.
-//
-// This program is free software distributed under the
-// terms of the GNU General Public License, version 2.
-// See the 'LICENSE' file for more details.
-//-----------------------------------------------------------------------------
-/// \file  swrast_math.c
-/// \brief Math
+/*
+	Simple realtime 3D software rasterization renderer. It is fast, focused on
+	resource-limited computers, with no dependencies, using only 32bit integer arithmetic.
+
+	author: Miloslav Ciz
+	license: CC0 1.0 (public domain) found at https://creativecommons.org/publicdomain/zero/1.0/ + additional waiver of all IP
+	version: 0.852d
+
+	--------------------
+
+	This work's goal is to never be encumbered by any exclusive intellectual
+	property rights. The work is therefore provided under CC0 1.0 + additional
+	WAIVER OF ALL INTELLECTUAL PROPERTY RIGHTS that waives the rest of
+	intellectual property rights not already waived by CC0 1.0. The WAIVER OF ALL
+	INTELLECTUAL PROPERTY RGHTS is as follows:
+
+	Each contributor to this work agrees that they waive any exclusive rights,
+	including but not limited to copyright, patents, trademark, trade dress,
+	industrial design, plant varieties and trade secrets, to any and all ideas,
+	concepts, processes, discoveries, improvements and inventions conceived,
+	discovered, made, designed, researched or developed by the contributor either
+	solely or jointly with others, which relate to this work or result from this
+	work. Should any waiver of such right be judged legally invalid or
+	ineffective under applicable law, the contributor hereby grants to each
+	affected person a royalty-free, non transferable, non sublicensable, non
+	exclusive, irrevocable and unconditional license to this right.
+*/
 
 #include "swrast.h"
+
+fixed_t SWRast_abs(fixed_t value)
+{
+	return value * (((value >= 0) << 1) - 1);
+}
+
+fixed_t SWRast_min(fixed_t v1, fixed_t v2)
+{
+	return v1 >= v2 ? v2 : v1;
+}
+
+fixed_t SWRast_max(fixed_t v1, fixed_t v2)
+{
+	return v1 >= v2 ? v1 : v2;
+}
+
+fixed_t SWRast_clamp(fixed_t v, fixed_t v1, fixed_t v2)
+{
+	return v >= v1 ? (v <= v2 ? v : v2) : v1;
+}
+
+fixed_t SWRast_zeroClamp(fixed_t value)
+{
+	return (value * (value >= 0));
+}
+
+fixed_t SWRast_wrap(fixed_t value, fixed_t mod)
+{
+	return value >= 0 ? (value % mod) : (mod + (value % mod) - 1);
+}
+
+fixed_t SWRast_NonZero(fixed_t value)
+{
+	return (value + (value == 0));
+}
+
+fixed_t SWRast_Interpolate(fixed_t v1, fixed_t v2, fixed_t t, fixed_t tMax)
+{
+	return v1 + FixedDiv(FixedMul((v2 - v1), t), tMax);
+}
+
+fixed_t SWRast_InterpolateByUnit(fixed_t v1, fixed_t v2, fixed_t t)
+{
+	return v1 + FixedMul((v2 - v1), t);
+}
+
+fixed_t SWRast_InterpolateByUnitFrom0(fixed_t v2, fixed_t t)
+{
+	return FixedMul(v2, t);
+}
+
+fixed_t SWRast_InterpolateFrom0(fixed_t v2, fixed_t t, fixed_t tMax)
+{
+	return FixedDiv(FixedMul(v2, t), tMax);
+}
+
+fixed_t SWRast_DistanceManhattan(SWRast_Vec4 a, SWRast_Vec4 b)
+{
+	return SWRast_abs(a.x - b.x) + SWRast_abs(a.y - b.y) + SWRast_abs(a.z - b.z);
+}
 
 void SWRast_InitVec4(SWRast_Vec4 *v)
 {
@@ -119,10 +194,10 @@ void SWRast_MultVec4Mat4(SWRast_Vec4 *v, SWRast_Mat4 *m)
 	vBackup.w = v->w;
 
 	#define dotCol(col)\
-		(FixedMul(vBackup.x, (*m)[col][0]) +\
-		 FixedMul(vBackup.y, (*m)[col][1]) +\
-		 FixedMul(vBackup.z, (*m)[col][2]) +\
-		 FixedMul(vBackup.w, (*m)[col][3]));
+	(FixedMul(vBackup.x, (*m)[col][0]) +\
+	FixedMul(vBackup.y, (*m)[col][1]) +\
+	FixedMul(vBackup.z, (*m)[col][2]) +\
+	FixedMul(vBackup.w, (*m)[col][3]));
 
 	v->x = dotCol(0);
 	v->y = dotCol(1);
@@ -136,10 +211,10 @@ void SWRast_MultVec3Mat4(SWRast_Vec4 *v, SWRast_Mat4 *m)
 
 	#undef dotCol
 	#define dotCol(col)\
-		FixedMul(vBackup.x, (*m)[col][0]) +\
-		FixedMul(vBackup.y, (*m)[col][1]) +\
-		FixedMul(vBackup.z, (*m)[col][2]) +\
-		(*m)[col][3]
+	FixedMul(vBackup.x, (*m)[col][0]) +\
+	FixedMul(vBackup.y, (*m)[col][1]) +\
+	FixedMul(vBackup.z, (*m)[col][2]) +\
+	(*m)[col][3]
 
 	vBackup.x = v->x;
 	vBackup.y = v->y;
@@ -153,76 +228,6 @@ void SWRast_MultVec3Mat4(SWRast_Vec4 *v, SWRast_Mat4 *m)
 }
 
 #undef dotCol
-
-// general helper functions
-fixed_t SWRast_abs(fixed_t value)
-{
-	return value * (((value >= 0) << 1) - 1);
-}
-
-fixed_t SWRast_min(fixed_t v1, fixed_t v2)
-{
-	return v1 >= v2 ? v2 : v1;
-}
-
-fixed_t SWRast_max(fixed_t v1, fixed_t v2)
-{
-	return v1 >= v2 ? v1 : v2;
-}
-
-fixed_t SWRast_clamp(fixed_t v, fixed_t v1, fixed_t v2)
-{
-	return v >= v1 ? (v <= v2 ? v : v2) : v1;
-}
-
-fixed_t SWRast_zeroClamp(fixed_t value)
-{
-	return (value * (value >= 0));
-}
-
-fixed_t SWRast_wrap(fixed_t value, fixed_t mod)
-{
-	return value >= 0 ? (value % mod) : (mod + (value % mod) - 1);
-}
-
-fixed_t SWRast_NonZero(fixed_t value)
-{
-	return (value + (value == 0));
-}
-
-/** Interpolated between two values, v1 and v2, in the same ratio as t is to
-	tMax. Does NOT prevent zero division. */
-fixed_t SWRast_Interpolate(fixed_t v1, fixed_t v2, fixed_t t, fixed_t tMax)
-{
-	return v1 + FixedDiv(FixedMul((v2 - v1), t), tMax);
-}
-
-/** Like SWRast_Interpolate, but uses a parameter that goes from 0 to
-	FRACUNIT - 1, which can be faster. */
-fixed_t SWRast_InterpolateByUnit(fixed_t v1, fixed_t v2, fixed_t t)
-{
-	return v1 + FixedMul((v2 - v1), t);
-}
-
-/** Same as SWRast_InterpolateByUnit but with v1 == 0. Should be faster. */
-fixed_t SWRast_InterpolateByUnitFrom0(fixed_t v2, fixed_t t)
-{
-	return FixedMul(v2, t);
-}
-
-/** Same as SWRast_Interpolate but with v1 == 0. Should be faster. */
-fixed_t SWRast_InterpolateFrom0(fixed_t v2, fixed_t t, fixed_t tMax)
-{
-	return FixedDiv(FixedMul(v2, t), tMax);
-}
-
-fixed_t SWRast_DistanceManhattan(SWRast_Vec4 a, SWRast_Vec4 b)
-{
-	return
-		SWRast_abs(a.x - b.x) +
-		SWRast_abs(a.y - b.y) +
-		SWRast_abs(a.z - b.z);
-}
 
 void SWRast_MultiplyMatrices(SWRast_Mat4 *m1, SWRast_Mat4 *m2)
 {
@@ -243,24 +248,11 @@ void SWRast_MultiplyMatrices(SWRast_Mat4 *m1, SWRast_Mat4 *m2)
 		}
 }
 
-/** Returns a value interpolated between the three triangle vertices based on
-	barycentric coordinates. */
-fixed_t SWRast_InterpolateBarycentric(
-	fixed_t value0,
-	fixed_t value1,
-	fixed_t value2,
-	fixed_t barycentric[3])
+fixed_t SWRast_InterpolateBarycentric(fixed_t value0, fixed_t value1, fixed_t value2, fixed_t barycentric[3])
 {
-	return
-		FixedMul(value0, barycentric[0]) +
-		FixedMul(value1, barycentric[1]) +
-		FixedMul(value2, barycentric[2]);
+	return FixedMul(value0, barycentric[0]) + FixedMul(value1, barycentric[1]) + FixedMul(value2, barycentric[2]);
 }
 
-/** Corrects barycentric coordinates so that they exactly meet the defined
-	conditions (each fall into <0,FRACUNIT>, sum =
-	FRACUNIT). Note that doing this per-pixel can slow the program
-	down significantly. */
 void SWRast_CorrectBarycentricCoords(fixed_t barycentric[3])
 {
 	fixed_t d;
@@ -279,11 +271,7 @@ void SWRast_CorrectBarycentricCoords(fixed_t barycentric[3])
 		barycentric[2] = d;
 }
 
-void SWRast_MakeTranslationMatrix(
-	fixed_t offsetX,
-	fixed_t offsetY,
-	fixed_t offsetZ,
-	SWRast_Mat4 *m)
+void SWRast_MakeTranslationMatrix(fixed_t offsetX, fixed_t offsetY, fixed_t offsetZ, SWRast_Mat4 *m)
 {
 	#define M(x,y) (*m)[x][y]
 	#define S FRACUNIT
@@ -297,11 +285,7 @@ void SWRast_MakeTranslationMatrix(
 	#undef S
 }
 
-void SWRast_MakeScaleMatrix(
-	fixed_t scaleX,
-	fixed_t scaleY,
-	fixed_t scaleZ,
-	SWRast_Mat4 *m)
+void SWRast_MakeScaleMatrix(fixed_t scaleX, fixed_t scaleY, fixed_t scaleZ, SWRast_Mat4 *m)
 {
 	#define M(x,y) (*m)[x][y]
 
@@ -313,11 +297,7 @@ void SWRast_MakeScaleMatrix(
 	#undef M
 }
 
-void SWRast_MakeRotationMatrixZXY(
-	angle_t byX,
-	angle_t byY,
-	angle_t byZ,
-	SWRast_Mat4 *m)
+void SWRast_MakeRotationMatrixZXY(angle_t byX, angle_t byY, angle_t byZ, SWRast_Mat4 *m)
 {
 	fixed_t sx, sy, sz;
 	fixed_t cx, cy, cz;
@@ -356,32 +336,16 @@ void SWRast_MakeRotationMatrixZXY(
 	#undef S
 }
 
-void SWRast_MakeWorldMatrix(SWRast_Transform3D *worldTransform, SWRast_Mat4 *m)
+void SWRast_MakeModelMatrix(SWRast_Transform3D *tr, SWRast_Mat4 *m)
 {
 	SWRast_Mat4 t;
 
-	SWRast_MakeScaleMatrix(
-		worldTransform->scale.x,
-		worldTransform->scale.y,
-		worldTransform->scale.z,
-		m
-	);
+	SWRast_MakeScaleMatrix(tr->scale.x, tr->scale.y, tr->scale.z, m);
+	SWRast_MakeRotationMatrixZXY(tr->rotation.x, tr->rotation.y, tr->rotation.z, &t);
+	SWRast_MultiplyMatrices(m, &t);
 
-	SWRast_MakeRotationMatrixZXY(
-		worldTransform->rotation.x,
-		worldTransform->rotation.y,
-		worldTransform->rotation.z,
-		&t);
-
-	SWRast_MultiplyMatrices(m,&t);
-
-	SWRast_MakeTranslationMatrix(
-		worldTransform->translation.x,
-		worldTransform->translation.y,
-		worldTransform->translation.z,
-		&t);
-
-	SWRast_MultiplyMatrices(m,&t);
+	SWRast_MakeTranslationMatrix( tr->translation.x, tr->translation.y, tr->translation.z, &t);
+	SWRast_MultiplyMatrices(m, &t);
 }
 
 void SWRast_TransposeMat4(SWRast_Mat4 *m)
@@ -398,34 +362,19 @@ void SWRast_TransposeMat4(SWRast_Mat4 *m)
 		}
 }
 
-void SWRast_MakeCameraMatrix(SWRast_Transform3D *cameraTransform, SWRast_Mat4 *m)
+void SWRast_MakeViewProjectionMatrix(SWRast_Transform3D *tr, SWRast_Mat4 *m)
 {
 	SWRast_Mat4 r;
 
-	SWRast_MakeTranslationMatrix(
-		-1 * cameraTransform->translation.x,
-		-1 * cameraTransform->translation.y,
-		-1 * cameraTransform->translation.z,
-		m);
-
-	SWRast_MakeRotationMatrixZXY(
-		cameraTransform->rotation.x,
-		cameraTransform->rotation.y,
-		cameraTransform->rotation.z,
-		&r);
-
+	SWRast_MakeTranslationMatrix(-1 * tr->translation.x, -1 * tr->translation.y, -1 * tr->translation.z, m);
+	SWRast_MakeRotationMatrixZXY(tr->rotation.x, tr->rotation.y, tr->rotation.z, &r);
 	SWRast_TransposeMat4(&r); // transposing creates an inverse transform
 
-	SWRast_MultiplyMatrices(m,&r);
+	SWRast_MultiplyMatrices(m, &r);
 
-	SWRast_MakeScaleMatrix(
-		cameraTransform->scale.x,
-		cameraTransform->scale.y,
-		cameraTransform->scale.z,
-		&r
-	);
-
-	SWRast_MultiplyMatrices(m,&r);
+	// Lactozilla: Field of view.
+	SWRast_MakeScaleMatrix(tr->scale.x, tr->scale.y, tr->scale.z, &r);
+	SWRast_MultiplyMatrices(m, &r);
 }
 
 fixed_t SWRast_Vec3Length(SWRast_Vec4 *v)
@@ -472,50 +421,44 @@ void SWRast_InitTransform3D(SWRast_Transform3D *t)
 	t->scale.w = 0;
 }
 
-/** Performs perspecive division (z-divide). Does NOT check for division by
-	zero. */
-void SWRast_PerspectiveDivide(SWRast_Vec4 *vector, fixed_t focalLength)
+void SWRast_PerspectiveDivide(SWRast_Vec4 *vector)
 {
-	vector->x = FixedDiv(FixedMul(vector->x, focalLength), vector->z);
-	vector->y = FixedDiv(FixedMul(vector->y, focalLength), vector->z);
+	vector->x = FixedDiv(vector->x, vector->z);
+	vector->y = FixedDiv(vector->y, vector->z);
 }
 
-void SWRast_Project3DPointToScreen(
-	SWRast_Vec4 point,
-	SWRast_Camera cam,
-	SWRast_Vec4 *result)
+void SWRast_Project3DPointToScreen(SWRast_Vec4 *point, SWRast_Transform3D *transform, SWRast_Vec4 *result)
 {
+	SWRast_Vec4 p;
 	SWRast_Mat4 m;
 	fixed_t s;
 	INT16 x, y;
 
-	SWRast_MakeCameraMatrix(&cam.transform,&m);
+	SWRast_MakeViewProjectionMatrix(transform, &m);
 
-	s = point.w;
+	s = point->w;
 
-	point.w = FRACUNIT;
+	p.x = point->x;
+	p.y = point->y;
+	p.z = point->z;
+	p.w = FRACUNIT;
 
-	SWRast_MultVec3Mat4(&point,&m);
+	SWRast_MultVec3Mat4(&p, &m);
+	p.z = SWRast_NonZero(p.z);
 
-	point.z = SWRast_NonZero(point.z);
-
-	SWRast_PerspectiveDivide(&point,cam.focalLength);
-	SWRast_MapProjectionPlaneToScreen(point,&x,&y);
+	SWRast_PerspectiveDivide(&p);
+	SWRast_MapProjectionPlaneToScreen(&p, &x, &y);
 
 	result->x = x;
 	result->y = y;
-	result->z = point.z;
-
-	result->w = (point.z <= 0) ? 0 : FixedDiv(FixedMul(FixedMul(s, cam.focalLength), SWRAST_RESOLUTION_X<<FRACBITS), point.z);
+	result->z = p.z;
+	result->w = (p.z <= 0) ? 0 : FixedDiv(FixedMul(s, SWRAST_RESOLUTION_X<<FRACBITS), p.z);
 }
 
-void SWRast_MapProjectionPlaneToScreen(
-	SWRast_Vec4 point,
-	INT16 *screenX,
-	INT16 *screenY)
+void SWRast_MapProjectionPlaneToScreen(SWRast_Vec4 *point, INT16 *screenX, INT16 *screenY)
 {
-	*screenX = SWRAST_HALF_RESOLUTION_X + FixedInt(FixedMul(point.x, SWRAST_HALF_RESOLUTION_X<<FRACBITS));
-	*screenY = SWRAST_HALF_RESOLUTION_Y - FixedInt(FixedMul(point.y, SWRAST_HALF_RESOLUTION_X<<FRACBITS));
+	*screenX = SWRAST_HALF_RESOLUTION_X + FixedInt(FixedMul(point->x, SWRAST_HALF_RESOLUTION_X<<FRACBITS));
+	*screenY = SWRAST_HALF_RESOLUTION_Y - FixedInt(FixedMul(point->y, SWRAST_HALF_RESOLUTION_X<<FRACBITS));
 }
 
 //
