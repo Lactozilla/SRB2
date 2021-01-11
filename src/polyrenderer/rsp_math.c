@@ -8,7 +8,7 @@
 // terms of the GNU General Public License, version 2.
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
-/// \file  rsp_spans.c
+/// \file  rsp_math.c
 /// \brief Floating point math
 
 #include "r_softpoly.h"

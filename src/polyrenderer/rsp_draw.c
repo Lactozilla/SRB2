@@ -7,7 +7,7 @@
 // terms of the GNU General Public License, version 2.
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
-/// \file  rsp_spans.c
+/// \file  rsp_draw.c
 /// \brief Pixel drawers
 
 #include "r_softpoly.h"

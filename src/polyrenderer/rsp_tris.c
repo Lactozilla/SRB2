@@ -9,7 +9,7 @@
 // terms of the GNU General Public License, version 2.
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
-/// \file  rsp_spans.c
+/// \file  rsp_tris.c
 /// \brief Triangle drawers
 
 #include "r_softpoly.h"
