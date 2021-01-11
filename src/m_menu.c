@@ -1438,11 +1438,12 @@ static menuitem_t OP_ColorOptionsMenu[] =
 	{IT_STRING | IT_CVAR | IT_CV_SLIDER, NULL, "Brightness",   &cv_mgamma,      150},
 };
 
-static menuitem_t OP_ModelOptionsMenu[3] =
+static menuitem_t OP_ModelOptionsMenu[] =
 {
-	{IT_HEADER, NULL, "3D Models", NULL, 0},
+	{IT_HEADER, NULL, "General", NULL, 0},
 	{IT_STRING|IT_CVAR,         NULL, "Models",              &cv_models,             12},
-	{IT_STRING|IT_CVAR,         NULL, "Model interpolation", &cv_modelinterpolation, 22},
+	{IT_STRING|IT_CVAR,         NULL, "Frame interpolation", &cv_modelinterpolation, 22},
+	{IT_STRING|IT_CVAR,         NULL, "Surface lighting",    &cv_modellighting,      32},
 };
 
 #ifdef HWRENDER
@@ -1451,7 +1452,7 @@ static menuitem_t OP_OpenGLOptionsMenu[] =
 	{IT_HEADER, NULL, "3D Models", NULL, 0},
 	{IT_STRING|IT_CVAR,         NULL, "Models",              &cv_models,               12},
 	{IT_STRING|IT_CVAR,         NULL, "Frame interpolation", &cv_modelinterpolation,   22},
-	{IT_STRING|IT_CVAR,         NULL, "Model lighting",      &cv_modellighting,        32},
+	{IT_STRING|IT_CVAR,         NULL, "Surface lighting",    &cv_modellighting,        32},
 
 	{IT_HEADER, NULL, "General", NULL, 51},
 	{IT_STRING|IT_CVAR,         NULL, "Shaders",             &cv_glshaders,            63},
@@ -2228,7 +2229,7 @@ menu_t OP_MonitorToggleDef =
 };
 
 menu_t OP_ModelOptionsDef = DEFAULTMENUSTYLE(
-	MN_OP_MAIN + (MN_OP_VIDEO << 6) + (MN_OP_MODELS << 12),
+	MTREE3(MN_OP_MAIN, MN_OP_VIDEO, MN_OP_MODELS),
 	"M_VIDEO", OP_ModelOptionsMenu, &OP_VideoOptionsDef, 30, 30);
 
 #ifdef HWRENDER
