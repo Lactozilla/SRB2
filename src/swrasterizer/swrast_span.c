@@ -366,7 +366,7 @@ void SWRast_RasterizeTriangle(
 		if (currentY >= SWRastState->viewWindow[SWRAST_VIEW_WINDOW_Y1])
 		{
 			// draw the horizontal line
-			INT16 rXClipped, lXClipped;
+			INT16 x, rXClipped, lXClipped;
 
 #if SWRAST_PERSPECTIVE_CORRECTION != 0
 			INT16 i;
@@ -460,7 +460,7 @@ void SWRast_RasterizeTriangle(
 #endif
 
 			// draw the row -- inner loop:
-			for (INT16 x = lXClipped; x < rXClipped; ++x)
+			for (x = lXClipped; x < rXClipped; ++x)
 			{
 				boolean testsPassed = true;
 

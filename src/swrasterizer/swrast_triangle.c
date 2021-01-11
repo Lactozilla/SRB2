@@ -64,6 +64,7 @@ UINT8 SWRast_ProjectTriangle(
 	UINT8 behindI[3];
 
 	fixed_t ratio;
+	UINT8 i;
 #endif
 
 	ProjectVertex(&triangle->vertices[0],matrix,&(transformed[0]));
@@ -71,7 +72,7 @@ UINT8 SWRast_ProjectTriangle(
 	ProjectVertex(&triangle->vertices[2],matrix,&(transformed[2]));
 
 #if SWRAST_NEAR_CROSS_STRATEGY == 2
-	for (UINT8 i = 0; i < 3; ++i)
+	for (i = 0; i < 3; ++i)
 		if (transformed[i].z < SWRAST_NEAR)
 		{
 			infrontI[infront] = i;
@@ -96,7 +97,7 @@ UINT8 SWRast_ProjectTriangle(
 	if (infront == 2)
 	{
 		// shift the two vertices forward along the edge
-		for (UINT8 i = 0; i < 2; ++i)
+		for (i = 0; i < 2; ++i)
 		{
 			UINT8 be = behindI[0], in = infrontI[i];
 
@@ -110,7 +111,7 @@ UINT8 SWRast_ProjectTriangle(
 		transformed[4] = transformed[infrontI[0]];
 		transformed[5] = transformed[infrontI[0]];
 
-		for (UINT8 i = 0; i < 2; ++i)
+		for (i = 0; i < 2; ++i)
 		{
 			UINT8 be = behindI[i], in = i + 4;
 

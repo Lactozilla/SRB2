@@ -227,17 +227,18 @@ fixed_t SWRast_DistanceManhattan(SWRast_Vec4 a, SWRast_Vec4 b)
 void SWRast_MultiplyMatrices(SWRast_Mat4 *m1, SWRast_Mat4 *m2)
 {
 	SWRast_Mat4 mat1;
+	UINT16 row, col, i;
 
-	for (UINT16 row = 0; row < 4; ++row)
-		for (UINT16 col = 0; col < 4; ++col)
+	for (row = 0; row < 4; ++row)
+		for (col = 0; col < 4; ++col)
 			mat1[col][row] = (*m1)[col][row];
 
-	for (UINT16 row = 0; row < 4; ++row)
-		for (UINT16 col = 0; col < 4; ++col)
+	for (row = 0; row < 4; ++row)
+		for (col = 0; col < 4; ++col)
 		{
 			(*m1)[col][row] = 0;
 
-			for (UINT16 i = 0; i < 4; ++i)
+			for (i = 0; i < 4; ++i)
 				(*m1)[col][row] += FixedMul(mat1[i][row], (*m2)[col][i]);
 		}
 }
@@ -385,10 +386,11 @@ void SWRast_MakeWorldMatrix(SWRast_Transform3D *worldTransform, SWRast_Mat4 *m)
 
 void SWRast_TransposeMat4(SWRast_Mat4 *m)
 {
+	UINT8 x, y;
 	fixed_t tmp;
 
-	for (UINT8 y = 0; y < 3; ++y)
-		for (UINT8 x = 1 + y; x < 4; ++x)
+	for (y = 0; y < 3; ++y)
+		for (x = 1 + y; x < 4; ++x)
 		{
 			tmp = (*m)[x][y];
 			(*m)[x][y] = (*m)[y][x];
