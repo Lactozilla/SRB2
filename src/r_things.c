@@ -33,8 +33,8 @@
 #include "d_netfil.h" // blargh. for nameonly().
 #include "m_cheat.h" // objectplace
 
-#ifdef POLYRENDERER
-#include "polyrenderer/r_softpoly.h"
+#ifdef SWRASTERIZER
+#include "swrasterizer/swrast.h"
 #endif
 
 #ifdef HWRENDER
@@ -102,12 +102,13 @@ static void R_InstallSpriteLump(UINT16 wad,            // graphics patch
 	if (maxframe ==(size_t)-1 || frame > maxframe)
 		maxframe = frame;
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
+	// TODO: Remove this after merging 91ed56ef40e96629d65a28201ff9b6589e641f2a
 	{
 		lumpcache_t *lumpcache;
 		UINT8 rot;
 		patch_t *patch;
-		rsp_spritetexture_t *tex;
+		SWRast_SprTex *tex;
 
 		if (rotation == ROT_L || rotation == ROT_R)
 			rot = ((rotation == ROT_R) ? 4 : 0);
@@ -118,7 +119,7 @@ static void R_InstallSpriteLump(UINT16 wad,            // graphics patch
 		{
 			lumpcache = wadfiles[wad]->patchcache->software;
 			if (!lumpcache[lump])
-				Z_Malloc(sizeof(rsp_spritetexture_t) * 16, PU_SOFTPOLY, &lumpcache[lump]);
+				Z_Malloc(sizeof(SWRast_SprTex) * 16, PU_SWRASTERIZER, &lumpcache[lump]);
 			tex = lumpcache[lump];
 			tex += rot;
 
@@ -649,12 +650,6 @@ static vissprite_t *R_NewVisSprite(void)
 //
 INT16 *mfloorclip;
 INT16 *mceilingclip;
-
-#ifdef POLYRENDERER
-INT16 *rsp_mfloorclip;
-INT16 *rsp_mceilingclip;
-INT32 rsp_portalclip[2];
-#endif
 
 fixed_t spryscale = 0, sprtopscreen = 0, sprbotscreen = 0;
 fixed_t windowtop = 0, windowbottom = 0;
@@ -1471,9 +1466,8 @@ static void R_ProjectSprite(mobj_t *thing)
 	INT32 rollangle = 0;
 #endif
 
-#ifdef POLYRENDERER
-	// Lactozilla: Polygon renderer
-	if (polyrenderer && (cv_models.value))
+#ifdef SWRASTERIZER
+	if (swrasterizer && (cv_models.value))
 	{
 		model = Model_IsAvailable(thing->sprite, thing->skin);
 		if (model)
@@ -1772,7 +1766,7 @@ static void R_ProjectSprite(mobj_t *thing)
 	projx1 = x1;
 	projx2 = x2;
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	// Lactozilla: Just project a big ass sprite
 	if (model)
 	{
@@ -1907,7 +1901,7 @@ static void R_ProjectSprite(mobj_t *thing)
 	vis->mobj = thing; // Easy access! Tails 06-07-2002
 	vis->model = model;
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	if (model)
 		modelinview = true;
 #endif
@@ -1922,7 +1916,7 @@ static void R_ProjectSprite(mobj_t *thing)
 	vis->projx1 = projx1 < portalclipstart ? portalclipstart : projx1;
 	vis->projx2 = projx2 >= portalclipend ? portalclipend-1 : projx2;
 	vis->clipleft = (portalrender) ? portalclipstart : 0;
-	vis->clipright = (portalrender) ? portalclipend-1 : viewwidth-1;
+	vis->clipright = (portalrender) ? portalclipend-1 : viewwidth;
 
 	vis->xscale = xscale; //SoM: 4/17/2000
 	vis->sector = thing->subsector->sector;
@@ -2001,9 +1995,9 @@ static void R_ProjectSprite(mobj_t *thing)
 	if (thing->subsector->sector->numlights)
 		R_SplitSprite(vis);
 
-#ifdef POLYRENDERER
-	if (rsp_maskdraw & RSP_MASKDRAWBIT)
-		RSP_StoreSpriteViewpoint(vis);
+#ifdef SWRASTERIZER
+	if (SWRast_GetMask() & SWRAST_MASKDRAWBIT)
+		SWRast_ViewpointStoreFromSprite(vis);
 #endif
 
 	if (oldthing->shadowscale && cv_shadow.value)
@@ -2711,15 +2705,13 @@ void R_InitDrawNodes(void)
 //
 static void R_DrawSprite(vissprite_t *spr)
 {
-#ifndef POLYRENDERER
+#ifndef SWRASTERIZER
 	mfloorclip = spr->clipbot;
 	mceilingclip = spr->cliptop;
 	R_DrawVisSprite(spr);
 #else
-	rsp_mfloorclip = spr->clipbot;
-	rsp_mceilingclip = spr->cliptop;
-	rsp_portalclip[0] = spr->clipleft;
-	rsp_portalclip[1] = spr->clipright;
+	SWRast_SetClipRanges(spr->clipleft, spr->clipright);
+	SWRast_SetClipTables(spr->clipbot, spr->cliptop);
 
 	if (!spr->model)
 	{
@@ -2727,7 +2719,7 @@ static void R_DrawSprite(vissprite_t *spr)
 		mceilingclip = spr->cliptop;
 		R_DrawVisSprite(spr);
 	}
-	else if (!RSP_RenderModel(spr))
+	else if (!SWRast_RenderModel(spr))
 	{
 		// The model didn't render, but the sprite also isn't
 		// supposed to render, maybe because it's too far
@@ -2742,8 +2734,7 @@ static void R_DrawSprite(vissprite_t *spr)
 		}
 	}
 
-	rsp_mfloorclip = NULL;
-	rsp_mceilingclip = NULL;
+	SWRast_SetClipTables(NULL, NULL);
 #endif
 }
 
@@ -3099,12 +3090,12 @@ void R_DrawMasked(maskcount_t* masks, UINT8 nummasks)
 		aimingangle = mask->aimingangle;
 		viewsector = mask->viewsector;
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 		if (modelinview)
 		{
 			if (mask->vissprites[1] - mask->vissprites[0] > 0)
-				RSP_ModelView();
-			rsp_maskdraw = (nummasks - 1);
+				SWRast_SetModelView();
+			SWRast_SetMask(nummasks - 1);
 		}
 #endif
 

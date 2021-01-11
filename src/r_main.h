@@ -34,9 +34,9 @@ extern fixed_t fovtan;
 
 extern size_t validcount, linecount, loopcount, framecount;
 
-#ifdef POLYRENDERER
-extern boolean polyrenderer;
-extern boolean nopolyrenderer;
+#ifdef SWRASTERIZER
+extern boolean swrasterizer;
+extern boolean noswrasterizer;
 extern boolean modelinview;
 extern boolean frustumclipping;
 #endif

@@ -251,7 +251,7 @@ else()
 endif()
 set(SRB2_CONFIG_HWRENDER ON CACHE BOOL
 	"Enable hardware rendering through OpenGL.")
-set(SRB2_CONFIG_POLYRENDERER ON CACHE BOOL
+set(SRB2_CONFIG_SWRASTERIZER ON CACHE BOOL
 	"Enable model rendering in software mode.")
 set(SRB2_CONFIG_USEASM OFF CACHE BOOL
 	"Enable NASM tmap implementation for software mode speedup.")
@@ -526,21 +526,22 @@ if(${SRB2_CONFIG_HWRENDER})
 
 endif()
 
-if(${SRB2_CONFIG_POLYRENDERER})
-	add_definitions(-DSPOLYRENDERER)
-	set(SRB2_POLYRENDERER_SOURCES
-		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/r_softpoly.c
-		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/small3dlib.c
-		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_draw.c
-		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_math.c
-		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_model.c
-		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_tris.c
+if(${SRB2_CONFIG_SWRASTERIZER})
+	add_definitions(-DSWRASTERIZER)
+	set(SRB2_SWRASTERIZER_SOURCES
+		${CMAKE_CURRENT_SOURCE_DIR}/swrasterizer/swrast_main.c
+		${CMAKE_CURRENT_SOURCE_DIR}/swrasterizer/swrast_triangle.c
+		${CMAKE_CURRENT_SOURCE_DIR}/swrasterizer/swrast_span.c
+		${CMAKE_CURRENT_SOURCE_DIR}/swrasterizer/swrast_pixel.c
+		${CMAKE_CURRENT_SOURCE_DIR}/swrasterizer/swrast_math.c
+		${CMAKE_CURRENT_SOURCE_DIR}/swrasterizer/swrast_model.c
 	)
 
-	set (SRB2_POLYRENDERER_HEADERS
-		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/r_softpoly.h
-		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/small3dlib.h
-		${CMAKE_CURRENT_SOURCE_DIR}/polyrenderer/rsp_types.h
+	set (SRB2_SWRASTERIZER_HEADERS
+		${CMAKE_CURRENT_SOURCE_DIR}/swrasterizer/swrast.h
+		${CMAKE_CURRENT_SOURCE_DIR}/swrasterizer/swrast_defs.h
+		${CMAKE_CURRENT_SOURCE_DIR}/swrasterizer/swrast_types.h
+		${CMAKE_CURRENT_SOURCE_DIR}/swrasterizer/swrast_math.h
 	)
 
 endif()

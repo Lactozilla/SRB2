@@ -813,9 +813,9 @@ static void Command_Memfree_f(void)
 		CONS_Printf(M_GetText("HW Texture used   : %7d KB\n"), HWR_GetTextureUsed()>>10);
 	}
 #endif
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	if (rendermode == render_soft)
-		CONS_Printf(M_GetText("Polygon renderer  : %7s KB\n"), sizeu1(Z_TagUsage(PU_SOFTPOLY)>>10));
+		CONS_Printf(M_GetText("Polygon renderer  : %7s KB\n"), sizeu1(Z_TagUsage(PU_SWRASTERIZER)>>10));
 #endif
 
 	CONS_Printf("\x82%s", M_GetText("System Memory Info\n"));

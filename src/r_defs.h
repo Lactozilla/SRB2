@@ -696,23 +696,29 @@ typedef struct
 #pragma pack()
 #endif
 
-// rotsprite
 #ifdef ROTSPRITE
 typedef struct
 {
 	patch_t *patch[16][ROTANGLES];
 	UINT16 cached;
 } rotsprite_t;
-#endif/*ROTSPRITE*/
+#endif
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
+typedef struct
+{
+	INT16 width;
+	INT16 height;
+	UINT16 *data;
+} SWRast_Texture;
+
 typedef struct
 {
 	INT16 width;
 	INT16 height;
 	UINT32 lumpnum;
 	UINT16 *data;
-} rsp_spritetexture_t;
+} SWRast_SprTex;
 #endif
 
 typedef enum

@@ -79,7 +79,7 @@ boolean Picture_IsPatchFormat(pictureformat_t format);
 boolean Picture_IsFlatFormat(pictureformat_t format);
 boolean Picture_CheckIfPatch(patch_t *patch, size_t size);
 
-// Structs
+// Enums
 typedef enum
 {
 	ROTAXIS_X, // Roll (the default)
@@ -87,6 +87,7 @@ typedef enum
 	ROTAXIS_Z  // Yaw
 } rotaxis_t;
 
+// Structs
 typedef struct
 {
 	INT32 x, y;
@@ -130,17 +131,5 @@ extern fixed_t rollcosang[ROTANGLES];
 extern fixed_t rollsinang[ROTANGLES];
 void R_FreeAllRotSprite(void);
 #endif
-
-// Polygon renderer
-#ifdef POLYRENDERER
-typedef struct
-{
-	INT16 width;
-	INT16 height;
-	UINT16 *data;
-} rsp_texture_t;
-
-void R_GenerateSpriteTexture(patch_t *patch, UINT16 *buffer, INT32 x, INT32 y, INT32 maxwidth, INT32 maxheight, boolean flip, UINT8 *colormap, UINT8 *translation);
-#endif // POLYRENDERER
 
 #endif // __R_PATCH__

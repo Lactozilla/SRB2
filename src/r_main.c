@@ -37,8 +37,8 @@
 #include "r_main.h"
 #include "i_system.h" // I_GetTimeMicros
 
-#ifdef POLYRENDERER
-#include "polyrenderer/r_softpoly.h"
+#ifdef SWRASTERIZER
+#include "swrasterizer/swrast.h"
 #endif
 
 #ifdef HWRENDER
@@ -80,9 +80,9 @@ sector_t *viewsector;
 player_t *viewplayer;
 mobj_t *r_viewmobj;
 
-#ifdef POLYRENDERER
-boolean polyrenderer = true;
-boolean nopolyrenderer = false;
+#ifdef SWRASTERIZER
+boolean swrasterizer = true;
+boolean noswrasterizer = false;
 boolean modelinview = false;
 boolean frustumclipping = false;
 #endif
@@ -1004,9 +1004,9 @@ void R_ExecuteSetViewSize(void)
 #endif
 
 	am_recalc = true;
-#ifdef POLYRENDERER
-	if (polyrenderer)
-		RSP_Viewport(viewwidth, viewheight);
+#ifdef SWRASTERIZER
+	if (swrasterizer)
+		SWRast_SetViewport(viewwidth, viewheight);
 #endif
 }
 
@@ -1036,9 +1036,9 @@ void R_Init(void)
 
 	R_InitDrawNodes();
 
-#ifdef POLYRENDERER
-	if (polyrenderer)
-		RSP_Init();
+#ifdef SWRASTERIZER
+	if (swrasterizer)
+		SWRast_Init();
 #endif
 
 	framecount = 0;
@@ -1512,12 +1512,12 @@ void R_RenderPlayerView(player_t *player)
 	Mask_Pre(&masks[nummasks - 1]);
 	curdrawsegs = ds_p;
 
-#ifdef POLYRENDERER
-	polyrenderer = (!nopolyrenderer);
+#ifdef SWRASTERIZER
+	swrasterizer = (!noswrasterizer);
 	modelinview = false;
 	frustumclipping = false;
-	if (polyrenderer)
-		RSP_OnFrame();
+	if (swrasterizer)
+		SWRast_OnPlayerFrame();
 #endif
 
 //profile stuff ---------------------------------------------------------
@@ -1541,9 +1541,9 @@ void R_RenderPlayerView(player_t *player)
 
 	R_ClipSprites(drawsegs, NULL);
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	if (modelinview)
-		RSP_StoreViewpoint();
+		SWRast_ViewpointStore();
 #endif
 
 	// Add skybox portals caused by sky visplanes.
@@ -1565,11 +1565,11 @@ void R_RenderPlayerView(player_t *player)
 			// Apply the viewpoint stored for the portal.
 			R_PortalFrame(portal);
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 			if (modelinview)
 			{
-				RSP_ModelView();
-				rsp_maskdraw = (RSP_MASKDRAWBIT | portalrender);
+				SWRast_SetModelView();
+				SWRast_SetMask(SWRAST_MASKDRAWBIT | portalrender);
 			}
 #endif
 
@@ -1601,9 +1601,9 @@ void R_RenderPlayerView(player_t *player)
 	}
 	rs_sw_portaltime = I_GetTimeMicros() - rs_sw_portaltime;
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	if (modelinview)
-		RSP_RestoreViewpoint();
+		SWRast_ViewpointRestore();
 #endif
 
 	rs_sw_planetime = I_GetTimeMicros();

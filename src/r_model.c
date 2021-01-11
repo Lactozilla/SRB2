@@ -26,8 +26,8 @@
 #include "errno.h"
 #endif
 
-#ifdef POLYRENDERER
-#include "polyrenderer/r_softpoly.h"
+#ifdef SWRASTERIZER
+#include "swrasterizer/swrast.h"
 #endif
 
 #ifdef HWRENDER
@@ -55,7 +55,7 @@ consvar_t cv_modelsfolder = {"modelsfolder", "models", CV_CALL|CV_SAVE, NULL, CV
 
 static void CV_Models_OnChange(void)
 {
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	if (rendermode == render_soft)
 		R_SetViewSize();
 #endif
@@ -96,11 +96,11 @@ void Model_Init(void)
 	strncpy(modelsfile, MODELSFILE, 64);
 	strncpy(modelsfolder, MODELSFOLDER, 64);
 
-#ifdef POLYRENDERER
-	if (M_CheckParm("-nopolyrenderer"))
+#ifdef SWRASTERIZER
+	if (M_CheckParm("-noswmodels"))
 	{
-		polyrenderer = false;
-		nopolyrenderer = true;
+		swrasterizer = false;
+		noswrasterizer = true;
 	}
 #endif
 }
@@ -527,9 +527,9 @@ void Model_UnloadTextures(modelinfo_t *model)
 		#undef FREETEX
 #endif
 
-#ifdef POLYRENDERER
-		RSP_FreeModelTexture(model);
-		RSP_FreeModelBlendTexture(model);
+#ifdef SWRASTERIZER
+		SWRast_FreeModelTexture(model);
+		SWRast_FreeModelBlendTexture(model);
 #endif
 
 		if (model->texture->base)

@@ -38,8 +38,8 @@
 // item finder
 #include "m_cond.h"
 
-#ifdef POLYRENDERER
-#include "polyrenderer/r_softpoly.h"
+#ifdef SWRASTERIZER
+#include "swrasterizer/swrast.h"
 #endif
 
 #ifdef HWRENDER
@@ -627,14 +627,12 @@ static void ST_drawDebugInfo(void)
 		//height += h/2;
 	}
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	if ((cv_debug & DBG_RENDER) && (rendermode == render_soft))
 	{
-#ifdef RSP_DEBUGGING
-		V_DrawDebugLine(va("Meshes drawn: %d", rsp_meshesdrawn));
-		V_DrawDebugLine(va("Triangles drawn: %d", rsp_trisdrawn));
-#endif
-		V_DrawDebugLine(va("Polygon renderer memory: %s KB", sizeu1(Z_TagUsage(PU_SOFTPOLY)>>10)));
+		V_DrawDebugLine(va("Meshes: %d", SWRast_GetNumRenderedMeshes()));
+		V_DrawDebugLine(va("Primitives: %d", SWRast_GetNumRenderedTriangles()));
+		V_DrawDebugLine(va("Memory: %sKB", sizeu1(Z_TagUsage(PU_SWRASTERIZER)>>10)));
 
 		height += h/2;
 	}

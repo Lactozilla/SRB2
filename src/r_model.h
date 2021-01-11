@@ -135,12 +135,12 @@ typedef struct
 	modeltexturedata_t *base;
 	modeltexturedata_t *blend;
 #ifdef HWRENDER
-	void               *grpatch;
-	void               *blendgrpatch;
+	void *grpatch;
+	void *blendgrpatch;
 #endif
-#ifdef POLYRENDERER
-	rsp_texture_t      rsp_tex;
-	rsp_texture_t      rsp_blendtex[8][MAXSKINCOLORS];
+#ifdef SWRASTERIZER
+	SWRast_Texture swrastTexture;
+	SWRast_Texture swrastBlendTexture[8][MAXSKINCOLORS];
 #endif
 } modeltexture_t;
 

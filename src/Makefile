@@ -262,12 +262,13 @@ ifdef NO_IPV6
 endif
 endif
 
-ifdef NO_POLYRENDERER
-	OPTS+=-DNO_POLYRENDERER
+ifdef NO_SWRASTERIZER
+	OPTS+=-DNO_SWRASTERIZER
 else
-	OPTS+=-DPOLYRENDERER
-	OBJS+=$(OBJDIR)/r_softpoly.o $(OBJDIR)/small3dlib.o $(OBJDIR)/rsp_draw.o \
-		 $(OBJDIR)/rsp_math.o $(OBJDIR)/rsp_tris.o $(OBJDIR)/rsp_model.o
+	OPTS+=-DSWRASTERIZER
+	OBJS+=$(OBJDIR)/swrast_main.o \
+		$(OBJDIR)/swrast_triangle.o $(OBJDIR)/swrast_span.o $(OBJDIR)/swrast_pixel.o \
+		$(OBJDIR)/swrast_math.o $(OBJDIR)/swrast_model.o
 endif
 
 ifdef NOHW
@@ -691,8 +692,8 @@ $(OBJDIR)/depend.dep:
 	-$(MKDIR) $(OBJDIR)
 	$(CC) $(CFLAGS) -MM *.c > $(OBJDIR)/depend.ped
 	$(CC) $(CFLAGS) -MM $(INTERFACE)/*.c >> $(OBJDIR)/depend.ped
-ifndef NO_POLYRENDERER
-	$(CC) $(CFLAGS) -MM polyrenderer/*.c >> $(OBJDIR)/depend.ped
+ifndef NO_SWRASTERIZER
+	$(CC) $(CFLAGS) -MM swrasterizer/*.c >> $(OBJDIR)/depend.ped
 endif
 ifndef NOHW
 	$(CC) $(CFLAGS) -MM hardware/*.c >> $(OBJDIR)/depend.ped
@@ -731,7 +732,7 @@ $(OBJDIR)/%.o: sdl/macosx/%.c
 	$(CC) $(CFLAGS) $(WFLAGS) -c $< -o $@
 endif
 
-$(OBJDIR)/%.o: polyrenderer/%.c
+$(OBJDIR)/%.o: swrasterizer/%.c
 	$(echoName)
 	$(CC) $(CFLAGS) $(WFLAGS) -c $< -o $@
 

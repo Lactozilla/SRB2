@@ -40,12 +40,6 @@ void R_AddSpriteDefs(UINT16 wadnum);
 extern INT16 *mfloorclip;
 extern INT16 *mceilingclip;
 
-#ifdef POLYRENDERER
-extern INT16 *rsp_mfloorclip;
-extern INT16 *rsp_mceilingclip;
-extern INT32 rsp_portalclip[2];
-#endif
-
 extern fixed_t spryscale;
 extern fixed_t sprtopscreen;
 extern fixed_t sprbotscreen;
@@ -193,7 +187,7 @@ typedef struct vissprite_s
 
 	INT32 dispoffset; // copy of info->dispoffset, affects ordering but not drawing
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	fixed_t viewx, viewy, viewz;
 	angle_t viewangle, aimingangle;
 	fixed_t viewcos, viewsin;

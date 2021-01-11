@@ -16,8 +16,8 @@
 
 #include "r_modeltextures.h"
 
-#ifdef POLYRENDERER
-#include "polyrenderer/r_softpoly.h"
+#ifdef SWRASTERIZER
+#include "swrasterizer/swrast.h"
 #endif
 
 #ifdef HWRENDER
@@ -311,9 +311,9 @@ boolean Model_LoadTexture(modelinfo_t *model)
 	else
 		texture = model->texture->base;
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	if (rendermode == render_soft)
-		RSP_FreeModelTexture(model);
+		SWRast_FreeModelTexture(model);
 	else
 #endif
 #ifdef HWRENDER
@@ -366,11 +366,11 @@ boolean Model_LoadTexture(modelinfo_t *model)
 	}
 
 	// copy texture into renderer memory
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	if (rendermode == render_soft)
 	{
 		// create base texture
-		RSP_CreateModelTexture(model, 0, 0);
+		SWRast_CreateModelTexture(model, 0, 0);
 		return true;
 	}
 #endif
@@ -440,9 +440,9 @@ boolean Model_LoadBlendTexture(modelinfo_t *model)
 	else
 		texture = model->texture->blend;
 
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	if (rendermode == render_soft)
-		RSP_FreeModelBlendTexture(model);
+		SWRast_FreeModelBlendTexture(model);
 	else
 #endif
 #ifdef HWRENDER
@@ -496,7 +496,7 @@ boolean Model_LoadBlendTexture(modelinfo_t *model)
 	}
 
 	// copy texture into renderer memory
-#ifdef POLYRENDERER
+#ifdef SWRASTERIZER
 	if (rendermode == render_soft)
 	{
 		// nothing to do here

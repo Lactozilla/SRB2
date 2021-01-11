@@ -7,10 +7,10 @@
 // terms of the GNU General Public License, version 2.
 // See the 'LICENSE' file for more details.
 //-----------------------------------------------------------------------------
-/// \file  rsp_model.c
-/// \brief Model loading
+/// \file  swrast_model.c
+/// \brief Model rendering
 
-#include "r_softpoly.h"
+#include "swrast.h"
 
 #ifdef __GNUC__
 #include <unistd.h>
@@ -35,34 +35,269 @@
 #include "../r_model.h"
 #include "../r_modeltextures.h"
 
-// Macros to improve code readability
 #define MD3_XYZ_SCALE   (1.0f / 64.0f)
 #define NORMAL_SCALE    (1.0f / 256.0f)
 
 #define VERTEX_OFFSET   ((i * 9) + (j * 3))		/* (i * 9) = (XYZ coords * vertex count) */
-#define NORMAL_OFFSET   ((i * 9) + (j * 3))		/* (i * 9) = (XYZ coords * vertex count) */
+#define NORMAL_OFFSET   ((i * 9) + (j * 3))		/* (i * 9) = (XYZ normals * vertex count) */
 #define UV_OFFSET       ((i * 6) + (j * 2))		/* (i * 6) = (UV coords * vertex count) */
 
-static fpquaternion_t *modelquaternion = NULL;
-S3L_Transform3D *modeltransform = NULL;
+static SWRast_Texture mSpriteTexture;
+static lighttable_t *mSpriteTranslation;
 
-boolean RSP_RenderModel(vissprite_t *spr)
+static boolean mPaperSprite, mMirrored;
+static boolean mHorizontalFlip, mVerticalFlip;
+
+#ifdef ROTSPRITE
+static angle_t mRollAngle;
+static fpquaternion_t mRollQuaternion;
+static fpvector4_t mRollTranslation;
+#endif
+
+static void SetModelStates(vissprite_t *spr)
 {
-	fpvector4_t modelvec;
-	rsp_texture_t *texture, sprtex;
-	rsp_spritetexture_t *sprtexp;
+	UINT8 *colormap = spr->colormap;
 
+	if (spr->transmap && (SWRast_GetFragmentRead() & SWRAST_READ_COLOR))
+	{
+		SWRast_EnableBlending();
+		SWRast_SetTranslucencyTable(spr->transmap);
+	}
+	else
+		SWRast_DisableBlending();
+
+	if (spr->extra_colormap)
+	{
+		if (!colormap)
+			colormap = spr->extra_colormap->colormap;
+		else
+			colormap = &spr->extra_colormap->colormap[colormap - colormaps];
+	}
+
+	SWRast_SetColormap(colormap);
+	SWRast_SetTranslation(mSpriteTranslation);
+
+	if (mHorizontalFlip ^ mVerticalFlip)
+		SWRast_SetCullMode(SWRAST_CULL_BACK);
+	else
+		SWRast_SetCullMode(SWRAST_CULL_FRONT);
+}
+
+static void SetTransform(mobj_t *mobj, modelinfo_t *md2, spriteframe_t *sprframe)
+{
+	static SWRast_Transform3D *mTransform = NULL;
+
+	fixed_t x = mobj->x;
+	fixed_t y = mobj->z;
+	fixed_t z = mobj->y + FloatToFixed(md2->offset);
+	angle_t ang;
+
+	if (mTransform == NULL)
+	{
+		mTransform = Z_Malloc(sizeof(SWRast_Transform3D), PU_SWRASTERIZER, NULL);
+		SWRast_InitTransform3D(mTransform);
+	}
+
+	// set model angle
+	if ((sprframe->rotate == SRF_SINGLE) && (!mPaperSprite))
+		ang = R_PointToAngle(mobj->x, mobj->y) - ANGLE_180;
+	else if (mobj->player)
+		ang = mobj->player->drawangle;
+	else
+		ang = mobj->angle;
+
+	mTransform->translation.x = x;
+	mTransform->translation.y = y;
+	mTransform->translation.z = z;
+	mTransform->rotation.y = ANGLE_180 - ang;
+
+	if (mobj->eflags & MFE_VERTICALFLIP)
+		mTransform->translation.y += mobj->height;
+
+	SWRast_MakeWorldMatrix(mTransform, &SWRastState->modelMatrix);
+
+	if (SWRastState->modelLighting)
+	{
+		y = mobj->height + (4<<FRACBITS);
+		SWRast_SetLightPos(0, -y, 0);
+	}
+}
+
+#ifdef ROTSPRITE
+static void SetModelRotation(mobj_t *mobj, spriteinfo_t *sprinfo, spriteframe_t *sprframe)
+{
+	rotaxis_t rotaxis = ROTAXIS_Y;
+	float xpivot, ypivot;
+	float roll = FixedToFloat(AngleFixed(mRollAngle));
+	INT32 flip = 1;
+
+	angle_t ang = R_PointToAngle(mobj->x, mobj->y) - (mobj->player ? mobj->player->drawangle : mobj->angle);
+	if ((sprframe->rotate & SRF_RIGHT) && (ang < ANGLE_180)) // See from right
+		flip = 1;
+	else if ((sprframe->rotate & SRF_LEFT) && (ang >= ANGLE_180)) // See from left
+		flip = -1;
+
+	roll *= flip;
+
+	if (sprinfo->available)
+		rotaxis = (UINT8)(sprinfo->pivot[(mobj->frame & FF_FRAMEMASK)].rotaxis);
+
+	switch (rotaxis)
+	{
+		case ROTAXIS_Z: // Z
+			FPQuaternionFromEuler(&mRollQuaternion, 0.0f, roll, 0.0f);
+			break;
+		case ROTAXIS_Y: // Y
+			FPQuaternionFromEuler(&mRollQuaternion, 0.0f, 0.0f, roll);
+			break;
+		default: // X
+			FPQuaternionFromEuler(&mRollQuaternion, roll, 0.0f, 0.0f);
+			break;
+	}
+
+	xpivot = FixedToFloat(mobj->radius) / 2.0f;
+	ypivot = FixedToFloat(mobj->height) / 2.0f;
+
+	FPVector4(mRollTranslation, xpivot, 0.0f, ypivot);
+}
+#endif
+
+static void TransformCoordinates(float *x, float *y, float *z)
+{
+	static fpquaternion_t *coordQuat = NULL;
+
+	fpvector4_t mVecFP;
+	FPVector4(mVecFP, *x, *y, *z);
+
+	if (coordQuat == NULL)
+	{
+		coordQuat = Z_Malloc(sizeof(fpquaternion_t), PU_SWRASTERIZER, NULL);
+		FPQuaternionFromEuler(coordQuat, 0.0f, 0.0f, -90.0f);
+	}
+
+	FPQuaternionRotateVector(&mVecFP, coordQuat);
+
+#ifdef ROTSPRITE
+	if (mRollAngle)
+	{
+		FPVectorAdd(&mVecFP, &mRollTranslation);
+		FPQuaternionRotateVector(&mVecFP, &mRollQuaternion);
+		FPVectorSubtract(&mVecFP, &mRollTranslation);
+	}
+#endif
+
+	*x = -1.0f * mVecFP.x;
+	*y = -1.0f * mVecFP.y;
+	*z = -1.0f * mVecFP.z;
+}
+
+static boolean SetTextureToSprite(SWRast_Texture **texture, mobj_t *mobj, spriteframe_t *sprframe)
+{
+	// TODO: Remove this after merging 91ed56ef40e96629d65a28201ff9b6589e641f2a
+	SWRast_SprTex *spriteTexture;
+	angle_t ang = 0;
+	unsigned rot;
+	UINT8 flip;
+	lumpcache_t *lumpcache;
+	lumpnum_t lumpnum;
+	UINT16 wad, lump;
+
+	if (sprframe->rotate != SRF_SINGLE || mPaperSprite)
+	{
+		ang = R_PointToAngle (mobj->x, mobj->y) - (mobj->player ? mobj->player->drawangle : mobj->angle);
+		if (mMirrored)
+			ang = InvAngle(ang);
+	}
+
+	if (sprframe->rotate == SRF_SINGLE)
+	{
+		// use single rotation for all views
+		rot = 0;                        //Fab: for vis->patch below
+		lump = sprframe->lumpid[0];     //Fab: see note above
+		flip = sprframe->flip; 			// Will only be 0 or 0xFFFF
+	}
+	else
+	{
+		// choose a different rotation based on player view
+		if ((sprframe->rotate & SRF_RIGHT) && (ang < ANGLE_180)) // See from right
+			rot = 6; // F7 slot
+		else if ((sprframe->rotate & SRF_LEFT) && (ang >= ANGLE_180)) // See from left
+			rot = 2; // F3 slot
+		else if (sprframe->rotate & SRF_3DGE) // 16-angle mode
+		{
+			rot = (ang+ANGLE_180+ANGLE_11hh)>>28;
+			rot = ((rot & 1)<<3)|(rot>>1);
+		}
+		else // Normal behaviour
+			rot = (ang+ANGLE_202h)>>29;
+
+		//Fab: lumpid is the index for spritewidth,spriteoffset... tables
+		lump = sprframe->lumpid[rot];
+		flip = sprframe->flip & (1<<rot);
+	}
+
+	flip = !flip != !mHorizontalFlip;
+
+	lumpnum = sprframe->lumppat[rot];
+	wad = WADFILENUM(lumpnum);
+	lump = LUMPNUM(lumpnum);
+
+	if (!wadfiles[wad]->patchcache)
+		return false;
+
+	lumpcache = wadfiles[wad]->patchcache->software;
+	if (!lumpcache[lump])
+		return false;
+
+	spriteTexture = lumpcache[lump];
+	spriteTexture += rot;
+	if (!spriteTexture)
+		return false;
+
+	mSpriteTexture.width = spriteTexture->width;
+	mSpriteTexture.height = spriteTexture->height;
+
+	// make the patch
+	if (!spriteTexture->data)
+	{
+		patch_t *source;
+
+		if (!spriteTexture->lumpnum || spriteTexture->width < 1 || spriteTexture->height < 1)
+			return false;
+
+		source = (patch_t *)W_CacheLumpNum(spriteTexture->lumpnum, PU_CACHE);
+
+		spriteTexture->data = Picture_Convert(PICFMT_PATCH, source, PICFMT_FLAT16, 0, NULL, spriteTexture->width, spriteTexture->height, 0, 0, (flip) ? PICFLAGS_XFLIP : 0);
+		spriteTexture->lumpnum = 0;
+
+		Z_ChangeTag(spriteTexture->data, PU_SWRASTERIZER);
+	}
+
+	mSpriteTexture.data = spriteTexture->data;
+	*texture = &mSpriteTexture;
+
+	return true;
+}
+
+static fixed_t CalcVertexLight(SWRast_Vertex *vertex)
+{
+	fixed_t dot = SWRast_DotProductVec3(&(vertex->normal), &(SWRastState->modelLightPos));
+	return (FRACUNIT / 2) + SWRast_clamp(dot, -FRACUNIT, FRACUNIT) / 2;
+}
+
+static void ResetViewpoint(void)
+{
+	if (SWRast_GetMask())
+		SWRast_ViewpointRestore();
+}
+
+boolean SWRast_RenderModel(vissprite_t *spr)
+{
+	SWRast_Texture *texture;
 	INT32 durs, tics;
-	INT32 modelz;
 	float z1, z2;
 	float finalscale;
 	float pol = 0.0f;
-
-	boolean vflip, papersprite;
-	angle_t ang, rollangle = 0;
-
-	fpquaternion_t rollquaternion;
-	fpvector4_t rolltranslation;
 
 	spritedef_t *sprdef;
 	spriteframe_t *sprframe;
@@ -74,7 +309,6 @@ boolean RSP_RenderModel(vissprite_t *spr)
 	INT32 tc = 0, textc = 0;
 
 	skincolornum_t skincolor = SKINCOLOR_NONE;
-	UINT8 *translation = NULL;
 
 	INT32 frameIndex = 0;
 	INT32 nextFrameIndex = -1;
@@ -96,32 +330,20 @@ boolean RSP_RenderModel(vissprite_t *spr)
 		return true;
 
 	// load sprite viewpoint
-	if (rsp_maskdraw)
-		RSP_RestoreSpriteViewpoint(spr);
-
-	if (modelquaternion == NULL)
-	{
-		fpquaternion_t quat = RSP_QuaternionFromEuler(0.0f, 0.0f, -90.0f);
-		modelquaternion = Z_Malloc(sizeof(fpquaternion_t), PU_SOFTPOLY, NULL);
-		M_Memcpy(modelquaternion, &quat, sizeof(fpquaternion_t));
-	}
-
-#define RESETVIEW { \
-	if (rsp_maskdraw) \
-		RSP_RestoreViewpoint(); \
-}
+	if (SWRast_GetMask())
+		SWRast_ViewpointRestoreFromSprite(spr);
 
 	md2 = (modelinfo_t *)spr->model;
 	if (!md2)
 	{
-		RESETVIEW
+		ResetViewpoint();
 		return false;
 	}
 
 	// Lactozilla: Disallow certain models from rendering
 	if (!Model_AllowRendering(mobj))
 	{
-		RESETVIEW
+		ResetViewpoint();
 		return false;
 	}
 
@@ -132,7 +354,7 @@ boolean RSP_RenderModel(vissprite_t *spr)
 		skincolor = (skincolornum_t)skins[0].prefcolor;
 
 	// load normal texture
-	if (!md2->texture->rsp_tex.data)
+	if (!md2->texture->swrastTexture.data)
 	{
 		if (mobj->skin)
 			skinnum = (skin_t*)mobj->skin-skins;
@@ -141,6 +363,8 @@ boolean RSP_RenderModel(vissprite_t *spr)
 	}
 
 	// set translation
+	mSpriteTranslation = NULL;
+
 	if ((mobj->flags & (MF_ENEMY|MF_BOSS)) && (mobj->flags2 & MF2_FRET) && !(mobj->flags & MF_GRENADEBOUNCE) && (leveltime & 1)) // Bosses "flash"
 	{
 		if (mobj->type == MT_CYBRAKDEMON)
@@ -151,7 +375,7 @@ boolean RSP_RenderModel(vissprite_t *spr)
 			tc = TC_BOSS;
 	}
 	else if (mobj->colorized)
-		translation = R_GetTranslationColormap(TC_RAINBOW, mobj->color, GTC_CACHE);
+		mSpriteTranslation = R_GetTranslationColormap(TC_RAINBOW, mobj->color, GTC_CACHE);
 	else if (mobj->player && mobj->player->dashmode >= DASHMODE_THRESHOLD
 		&& (mobj->player->charflags & SF_DASHMODE)
 		&& ((leveltime/2) & 1))
@@ -159,7 +383,7 @@ boolean RSP_RenderModel(vissprite_t *spr)
 		if (mobj->player->charflags & SF_MACHINE)
 			tc = TC_DASHMODE;
 		else
-			translation = R_GetTranslationColormap(TC_RAINBOW, mobj->color, GTC_CACHE);
+			mSpriteTranslation = R_GetTranslationColormap(TC_RAINBOW, mobj->color, GTC_CACHE);
 	}
 	else
 	{
@@ -174,14 +398,14 @@ boolean RSP_RenderModel(vissprite_t *spr)
 	if (textc == TC_METALSONIC)
 		skincolor = SKINCOLOR_COBALT;
 
-	if (textc && md2->texture->rsp_blendtex[textc][skincolor].data == NULL)
-		RSP_CreateModelTexture(md2, textc, skincolor);
+	if (textc && md2->texture->swrastBlendTexture[textc][skincolor].data == NULL)
+		SWRast_CreateModelTexture(md2, textc, skincolor);
 
 	// use corresponding texture for this model
-	if (md2->texture->rsp_blendtex[textc][skincolor].data != NULL)
-		texture = &md2->texture->rsp_blendtex[textc][skincolor];
+	if (md2->texture->swrastBlendTexture[textc][skincolor].data != NULL)
+		texture = &md2->texture->swrastBlendTexture[textc][skincolor];
 	else
-		texture = &md2->texture->rsp_tex;
+		texture = &md2->texture->swrastTexture;
 
 	if (mobj->skin && mobj->sprite == SPR_PLAY)
 	{
@@ -199,111 +423,28 @@ boolean RSP_RenderModel(vissprite_t *spr)
 	}
 
 	sprframe = &sprdef->spriteframes[mobj->frame & FF_FRAMEMASK];
-	papersprite = (mobj->frame & FF_PAPERSPRITE);
+
+	mPaperSprite = (mobj->frame & FF_PAPERSPRITE);
+	mMirrored = mobj->mirrored;
+	mVerticalFlip = (!(mobj->eflags & MFE_VERTICALFLIP) != !(mobj->frame & FF_VERTICALFLIP));
+	mHorizontalFlip = (!(mobj->frame & FF_HORIZONTALFLIP) != !mMirrored);
 
 	if (!texture->data)
 	{
-		unsigned rot;
-		UINT8 flip;
-		lumpcache_t *lumpcache;
-		lumpnum_t lumpnum;
-		UINT16 wad, lump;
-
-		if (sprframe->rotate != SRF_SINGLE || papersprite)
-			ang = R_PointToAngle (mobj->x, mobj->y) - (mobj->player ? mobj->player->drawangle : mobj->angle);
-
-		if (sprframe->rotate == SRF_SINGLE)
+		if (!SetTextureToSprite(&texture, mobj, sprframe))
 		{
-			// use single rotation for all views
-			rot = 0;                        //Fab: for vis->patch below
-			flip = sprframe->flip; // Will only be 0x00 or 0xFF
-		}
-		else
-		{
-			// choose a different rotation based on player view
-			if ((sprframe->rotate & SRF_RIGHT) && (ang < ANGLE_180)) // See from right
-				rot = 6; // F7 slot
-			else if ((sprframe->rotate & SRF_LEFT) && (ang >= ANGLE_180)) // See from left
-				rot = 2; // F3 slot
-			else // Normal behaviour
-				rot = (ang+ANGLE_202h)>>29;
-
-			flip = sprframe->flip & (1<<rot);
-		}
-
-		// get rsp_texture
-		lumpnum = sprframe->lumppat[rot];
-		wad = WADFILENUM(lumpnum);
-		lump = LUMPNUM(lumpnum);
-
-		if (!wadfiles[wad]->patchcache)
-		{
-			RESETVIEW
+			ResetViewpoint();
 			return false;
 		}
 
-		lumpcache = wadfiles[wad]->patchcache->software;
-		if (!lumpcache[lump])
-		{
-			RESETVIEW
-			return false;
-		}
-
-		sprtexp = lumpcache[lump];
-		sprtexp += rot;
-		if (!sprtexp)
-		{
-			RESETVIEW
-			return false;
-		}
-
-		sprtex.width = sprtexp->width;
-		sprtex.height = sprtexp->height;
-
-		// make the patch
-		if (!sprtexp->data)
-		{
-			patch_t *source;
-			size_t size;
-
-			// uuhhh.....
-			if (!sprtexp->lumpnum)
-			{
-				RESETVIEW
-				return false;
-			}
-
-			// still not a patch yet
-			// (R_CheckIfPatch has most likely failed)
-			if ((sprtexp->width) < 1 || (sprtexp->height < 1))
-			{
-				RESETVIEW
-				return false;
-			}
-
-			// cache the source patch
-			source = (patch_t *)W_CacheLumpNum(sprtexp->lumpnum, PU_STATIC);
-
-			// make the buffer
-			size = (sprtexp->width * sprtexp->height);
-			sprtexp->data = Z_Calloc(size * sizeof(UINT16), PU_SOFTPOLY, NULL);
-
-			// generate the texture, then clear lumpnum
-			R_GenerateSpriteTexture(source, sprtexp->data, 0, 0, sprtexp->width, sprtexp->height, flip, NULL, NULL);
-			sprtexp->lumpnum = 0;
-
-			// aight bro u have lost yuor cache privileges
-			Z_Free(source);
-		}
-
-		// Set the translation here because no blend texture was made
-		if (tc == TC_DEFAULT && (mobj->skin))
+		// Set the translation here, since no blend texture was made
+		if (tc == TC_DEFAULT && mobj->skin)
 			tc = skinnum;
-		translation = R_GetTranslationColormap(tc, mobj->color, GTC_CACHE);
 
-		sprtex.data = sprtexp->data;
-		texture = &sprtex;
+		mSpriteTranslation = R_GetTranslationColormap(tc, mobj->color, GTC_CACHE);
 	}
+
+	SWRast_BindTexture(texture);
 
 	if (mobj->frame & FF_ANIMATE)
 	{
@@ -398,113 +539,20 @@ boolean RSP_RenderModel(vissprite_t *spr)
 	finalscale *= 0.5f;
 
 #ifdef ROTSPRITE
-	if (mobj->rollangle)
-	{
-		int rollflip = 1;
-		rotaxis_t rotaxis = ROTAXIS_Y;
-		float roll;
-		fixed_t froll;
-		float modelcenterx, modelcentery;
+	mRollAngle = mobj->rollangle;
 
-		rollangle = mobj->rollangle;
-		froll = AngleFixed(rollangle);
-		roll = FixedToFloat(froll);
-
-		// rotation axis
-		if (sprinfo->available)
-			rotaxis = (UINT8)(sprinfo->pivot[(mobj->frame & FF_FRAMEMASK)].rotaxis);
-
-		// for NiGHTS specifically but should work everywhere else
-		ang = R_PointToAngle(mobj->x, mobj->y) - (mobj->player ? mobj->player->drawangle : mobj->angle);
-		if ((sprframe->rotate & SRF_RIGHT) && (ang < ANGLE_180)) // See from right
-			rollflip = 1;
-		else if ((sprframe->rotate & SRF_LEFT) && (ang >= ANGLE_180)) // See from left
-			rollflip = -1;
-
-		roll *= rollflip;
-		if (rotaxis == 2) // Z
-			rollquaternion = RSP_QuaternionFromEuler(0.0f, roll, 0.0f);
-		else if (rotaxis == 1) // Y
-			rollquaternion = RSP_QuaternionFromEuler(0.0f, 0.0f, roll);
-		else // X
-			rollquaternion = RSP_QuaternionFromEuler(roll, 0.0f, 0.0f);
-
-		modelcenterx = FixedToFloat(mobj->radius/2);
-		modelcentery = FixedToFloat(mobj->height/2);
-		RSP_MakeVector4(rolltranslation, modelcenterx, 0.0f, modelcentery);
-	}
+	if (mRollAngle)
+		SetModelRotation(mobj, sprinfo, sprframe);
 #endif
 
-	// Setup draw state
-	if (spr->transmap && (rsp_target.read & RSP_READ_COLOR))
-	{
-		rsp_state.transmap = spr->transmap;
-		rsp_curpixelfunc = rsp_transpixelfunc;
-	}
-	else
-		rsp_curpixelfunc = rsp_basepixelfunc;
-
-	if (texture->data)
-		rsp_state.texture = texture;
-	else
-		rsp_state.texture = NULL;
-
-	rsp_state.colormap = spr->colormap;
-
-	if (spr->extra_colormap)
-	{
-		if (!rsp_state.colormap)
-			rsp_state.colormap = spr->extra_colormap->colormap;
-		else
-			rsp_state.colormap = &spr->extra_colormap->colormap[rsp_state.colormap - colormaps];
-	}
-
-	rsp_state.translation = translation;
-
-	vflip = (!(mobj->eflags & MFE_VERTICALFLIP) != !(mobj->frame & FF_VERTICALFLIP));
-	rsp_state.flipped = vflip;
-
-	// set model angle
-	if ((sprframe->rotate == SRF_SINGLE) && (!papersprite))
-		ang = R_PointToAngle(mobj->x, mobj->y);
-	else if (mobj->player)
-		ang = mobj->player->drawangle;
-	else
-		ang = mobj->angle;
-
-	if (modeltransform == NULL)
-	{
-		modeltransform = Z_Malloc(sizeof(S3L_Transform3D), PU_SOFTPOLY, NULL);
-
-		S3L_initTransform3D(modeltransform);
-
-		modeltransform->rotation.x = 0;
-		modeltransform->rotation.z = 0;
-	}
-
-	if (mobj->eflags & MFE_VERTICALFLIP)
-		modelz = mobj->z + mobj->height;
-	else
-		modelz = mobj->z;
-
-	modeltransform->translation.x = FixedDiv(mobj->x, RSP_INTERNALUNITDIVIDE);
-	modeltransform->translation.y = FixedDiv(modelz, RSP_INTERNALUNITDIVIDE);
-	modeltransform->translation.z = FixedDiv(mobj->y + FloatToFixed(md2->offset), RSP_INTERNALUNITDIVIDE);
-	modeltransform->rotation.y = RSP_AngleToInternalAngle(ang - ANGLE_90);
-
-	S3L_makeWorldMatrix(modeltransform, &rsp_modelmatrix);
-
-	rsp_lightpos.x = modeltransform->translation.x;
-	rsp_lightpos.y = modeltransform->translation.y + (10 * RSP_INTERNALUNITDIVIDE);
-	rsp_lightpos.z = modeltransform->translation.z;
-
-	S3L_normalizeVec3(&rsp_lightpos);
+	SetModelStates(spr);
+	SetTransform(mobj, md2, sprframe);
 
 	// Render every mesh
 	for (meshnum = 0; meshnum < md2->model->numMeshes; meshnum++)
 	{
 		mesh_t *mesh = &md2->model->meshes[meshnum];
-		rsp_triangle_t triangle;
+		SWRast_Triangle triangle;
 
 		UINT16 i, j;
 		float scale = finalscale;
@@ -532,22 +580,6 @@ boolean RSP_RenderModel(vissprite_t *spr)
 		{
 			float s, t;
 			float *uv = mesh->uvs;
-
-			// Rotate the triangle -90 degrees and invert the Z coordinate
-			#define FIXTRIANGLE(rotx, roty, rotz) \
-			{ \
-				RSP_MakeVector4(modelvec, rotx, roty, rotz); \
-				RSP_QuaternionRotateVector(&modelvec, modelquaternion); \
-				if (rollangle) \
-				{ \
-					modelvec = RSP_VectorAdd(&modelvec, &rolltranslation); \
-					RSP_QuaternionRotateVector(&modelvec, &rollquaternion); \
-					modelvec = RSP_VectorSubtract(&modelvec, &rolltranslation); \
-				} \
-				rotx = -1.0f * modelvec.x; \
-				roty = -1.0f * modelvec.y; \
-				rotz = -1.0f * modelvec.z; \
-			} \
 
 			for (j = 0; j < 3; j++)
 			{
@@ -578,9 +610,9 @@ boolean RSP_RenderModel(vissprite_t *spr)
 						vy = *(vert + (idx * 3) + 1) * scale;
 						vz = *(vert + (idx * 3) + 2) * scale;
 
-						FIXTRIANGLE(vx, vy, vz)
+						TransformCoordinates(&vx, &vy, &vz);
 
-						if (rsp_target.read & RSP_READ_LIGHT)
+						if (SWRastState->modelLighting)
 						{
 							nx = (float)(*(norm + (idx * 3))) * NORMAL_SCALE;
 							ny = (float)(*(norm + (idx * 3) + 1)) * NORMAL_SCALE;
@@ -593,9 +625,9 @@ boolean RSP_RenderModel(vissprite_t *spr)
 						vy = frame->vertices[VERTEX_OFFSET+1] * scale;
 						vz = frame->vertices[VERTEX_OFFSET+2] * scale;
 
-						FIXTRIANGLE(vx, vy, vz)
+						TransformCoordinates(&vx, &vy, &vz);
 
-						if (rsp_target.read & RSP_READ_LIGHT)
+						if (SWRastState->modelLighting)
 						{
 							nx = frame->normals[NORMAL_OFFSET];
 							ny = frame->normals[NORMAL_OFFSET+1];
@@ -603,11 +635,11 @@ boolean RSP_RenderModel(vissprite_t *spr)
 						}
 					}
 
-					z1 = vz * (vflip ? -1 : 1);
+					z1 = vz * (mVerticalFlip ? -1 : 1);
 
-					triangle.vertices[j].position.x = FixedDiv(FloatToFixed(vx), RSP_INTERNALUNITDIVIDE);
-					triangle.vertices[j].position.y = FixedDiv(FloatToFixed(z1), RSP_INTERNALUNITDIVIDE);
-					triangle.vertices[j].position.z = FixedDiv(FloatToFixed(vy), RSP_INTERNALUNITDIVIDE);
+					triangle.vertices[j].position.x = FloatToFixed(vx);
+					triangle.vertices[j].position.y = FloatToFixed(z1);
+					triangle.vertices[j].position.z = FloatToFixed(vy);
 				}
 				else
 				{
@@ -632,10 +664,10 @@ boolean RSP_RenderModel(vissprite_t *spr)
 						py2 = *(nvert + (idx * 3) + 1) * scale;
 						pz2 = *(nvert + (idx * 3) + 2) * scale;
 
-						FIXTRIANGLE(px1, py1, pz1)
-						FIXTRIANGLE(px2, py2, pz2)
+						TransformCoordinates(&px1, &py1, &pz1);
+						TransformCoordinates(&px2, &py2, &pz2);
 
-						if (rsp_target.read & RSP_READ_LIGHT)
+						if (SWRastState->modelLighting)
 						{
 							nx1 = (float)(*(norm + (idx * 3))) * NORMAL_SCALE;
 							ny1 = (float)(*(norm + (idx * 3) + 1)) * NORMAL_SCALE;
@@ -654,10 +686,10 @@ boolean RSP_RenderModel(vissprite_t *spr)
 						py2 = nextframe->vertices[VERTEX_OFFSET+1] * scale;
 						pz2 = nextframe->vertices[VERTEX_OFFSET+2] * scale;
 
-						FIXTRIANGLE(px1, py1, pz1)
-						FIXTRIANGLE(px2, py2, pz2)
+						TransformCoordinates(&px1, &py1, &pz1);
+						TransformCoordinates(&px2, &py2, &pz2);
 
-						if (rsp_target.read & RSP_READ_LIGHT)
+						if (SWRastState->modelLighting)
 						{
 							nx1 = frame->normals[NORMAL_OFFSET];
 							ny1 = frame->normals[NORMAL_OFFSET+1];
@@ -668,51 +700,50 @@ boolean RSP_RenderModel(vissprite_t *spr)
 						}
 					}
 
-					z1 = pz1 * (vflip ? -1 : 1);
-					z2 = pz2 * (vflip ? -1 : 1);
+					z1 = pz1 * (mVerticalFlip ? -1 : 1);
+					z2 = pz2 * (mVerticalFlip ? -1 : 1);
 
-					lx = FloatLerp(px1, px2, pol);
-					ly = FloatLerp(py1, py2, pol);
-					lz = FloatLerp(z1, z2, pol);
+					lx = FPInterpolate(px1, px2, pol);
+					ly = FPInterpolate(py1, py2, pol);
+					lz = FPInterpolate(z1, z2, pol);
 
-					if (rsp_target.read & RSP_READ_LIGHT)
+					if (SWRastState->modelLighting)
 					{
-						nx = FloatLerp(nx1, nx2, pol);
-						ny = FloatLerp(ny1, ny2, pol);
-						nz = FloatLerp(nz1, nz2, pol);
+						nx = FPInterpolate(nx1, nx2, pol);
+						ny = FPInterpolate(ny1, ny2, pol);
+						nz = FPInterpolate(nz1, nz2, pol);
 					}
 
-					triangle.vertices[j].position.x = FixedDiv(FloatToFixed(lx), RSP_INTERNALUNITDIVIDE);
-					triangle.vertices[j].position.y = FixedDiv(FloatToFixed(lz), RSP_INTERNALUNITDIVIDE);
-					triangle.vertices[j].position.z = FixedDiv(FloatToFixed(ly), RSP_INTERNALUNITDIVIDE);
+					triangle.vertices[j].position.x = FloatToFixed(lx);
+					triangle.vertices[j].position.y = FloatToFixed(lz);
+					triangle.vertices[j].position.z = FloatToFixed(ly);
 				}
 
-				triangle.vertices[j].normal.x = FloatToFixed(nx) >> RSP_INTERNALUNITSHIFT;
-				triangle.vertices[j].normal.y = FloatToFixed(ny) >> RSP_INTERNALUNITSHIFT;
-				triangle.vertices[j].normal.z = FloatToFixed(nz) >> RSP_INTERNALUNITSHIFT;
+				if (SWRastState->modelLighting)
+				{
+					triangle.vertices[j].normal.x = FloatToFixed(nx);
+					triangle.vertices[j].normal.y = FloatToFixed(ny);
+					triangle.vertices[j].normal.z = FloatToFixed(nz);
+				}
 
-				triangle.vertices[j].uv.u = FloatToFixed(s) >> RSP_INTERNALUNITSHIFT;
-				triangle.vertices[j].uv.v = FloatToFixed(t) >> RSP_INTERNALUNITSHIFT;
+				triangle.vertices[j].uv.u = FloatToFixed(s);
+				triangle.vertices[j].uv.v = FloatToFixed(t);
 			}
 
 			// Compute light
-			if (rsp_target.read & RSP_READ_LIGHT)
+			if (SWRastState->modelLighting)
 			{
-				rsp_state.light[0] = 256 + S3L_clamp(S3L_dotProductVec3((S3L_Vec4 *)(&triangle.vertices[0].normal),&rsp_lightpos),-511,511) / 2;
-				rsp_state.light[1] = 256 + S3L_clamp(S3L_dotProductVec3((S3L_Vec4 *)(&triangle.vertices[1].normal),&rsp_lightpos),-511,511) / 2;
-				rsp_state.light[2] = 256 + S3L_clamp(S3L_dotProductVec3((S3L_Vec4 *)(&triangle.vertices[2].normal),&rsp_lightpos),-511,511) / 2;
+				fixed_t l0 = CalcVertexLight(&triangle.vertices[0]);
+				fixed_t l1 = CalcVertexLight(&triangle.vertices[1]);
+				fixed_t l2 = CalcVertexLight(&triangle.vertices[2]);
+				SWRast_SetVertexLights(l0, l1, l2);
 			}
 
-			RSP_TransformTriangle(&triangle);
+			SWRast_RenderTriangle(&triangle);
 		}
 
-#ifdef RSP_DEBUGGING
-		rsp_meshesdrawn++;
-#endif
+		SWRast_AddNumRenderedMeshes();
 	}
-
-#undef FIXTRIANGLE
-#undef RESETVIEW
 
 	return true;
 }
@@ -725,7 +756,7 @@ boolean RSP_RenderModel(vissprite_t *spr)
 #define SETBRIGHTNESS(brightness,r,g,b) \
 	brightness = (UINT8)(((1063*(UINT16)(r))/5000) + ((3576*(UINT16)(g))/5000) + ((361*(UINT16)(b))/5000))
 
-static colorlookup_t rsp_colorlookup;
+static colorlookup_t swrtex_colorlookup;
 
 static boolean BlendTranslations(UINT16 *px, RGBA_t *sourcepx, RGBA_t *blendpx, INT32 translation)
 {
@@ -736,10 +767,10 @@ static boolean BlendTranslations(UINT16 *px, RGBA_t *sourcepx, RGBA_t *blendpx, 
 		{
 			// Lactozilla: Invert the colors
 			UINT8 invcol = (255 - sourcepx->s.blue);
-			*px = GetColorLUT(&rsp_colorlookup, invcol, invcol, invcol);
+			*px = GetColorLUT(&swrtex_colorlookup, invcol, invcol, invcol);
 		}
 		else
-			*px = GetColorLUT(&rsp_colorlookup, sourcepx->s.red, sourcepx->s.green, sourcepx->s.blue);
+			*px = GetColorLUT(&swrtex_colorlookup, sourcepx->s.red, sourcepx->s.green, sourcepx->s.blue);
 		*px |= 0xFF00;
 		return true;
 	}
@@ -748,7 +779,7 @@ static boolean BlendTranslations(UINT16 *px, RGBA_t *sourcepx, RGBA_t *blendpx, 
 		if (sourcepx->s.alpha == 0 && blendpx->s.alpha == 0)
 		{
 			// Don't bother with blending the pixel if the alpha of the blend pixel is 0
-			*px = GetColorLUT(&rsp_colorlookup, sourcepx->s.red, sourcepx->s.green, sourcepx->s.blue);
+			*px = GetColorLUT(&swrtex_colorlookup, sourcepx->s.red, sourcepx->s.green, sourcepx->s.blue);
 		}
 		else
 		{
@@ -768,7 +799,7 @@ static boolean BlendTranslations(UINT16 *px, RGBA_t *sourcepx, RGBA_t *blendpx, 
 				icolor.s.red = sourcepx->s.blue;
 				icolor.s.blue = sourcepx->s.red;
 			}
-			*px = GetColorLUT(&rsp_colorlookup,
+			*px = GetColorLUT(&swrtex_colorlookup,
 				(ialpha * icolor.s.red + balpha * bcolor.s.red)/255,
 				(ialpha * icolor.s.green + balpha * bcolor.s.green)/255,
 				(ialpha * icolor.s.blue + balpha * bcolor.s.blue)/255
@@ -780,18 +811,17 @@ static boolean BlendTranslations(UINT16 *px, RGBA_t *sourcepx, RGBA_t *blendpx, 
 	else if (translation == TC_ALLWHITE)
 	{
 		// Turn everything white
-		*px = (0xFF00 | GetColorLUT(&rsp_colorlookup, 255, 255, 255));
+		*px = (0xFF00 | GetColorLUT(&swrtex_colorlookup, 255, 255, 255));
 		return true;
 	}
 	return false;
 }
 
-void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, skincolornum_t skincolor)
+void SWRast_CreateModelTexture(modelinfo_t *model, INT32 tcnum, skincolornum_t skincolor)
 {
 	modeltexturedata_t *texture = model->texture->base;
 	modeltexturedata_t *blendtexture = model->texture->blend;
-	rsp_texture_t *ttex;
-	rsp_texture_t *ntex;
+	SWRast_Texture *ttex, *ntex;
 	size_t i, size = 0;
 
 	UINT16 translation[16]; // First the color index
@@ -807,10 +837,10 @@ void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, skincolornum_t skin
 	if (skincolor && ((!blendtexture) || (blendtexture && !blendtexture->data)))
 		skincolor = 0;
 
-	ttex = &model->texture->rsp_blendtex[tcnum][skincolor];
-	ntex = &model->texture->rsp_tex;
+	ttex = &model->texture->swrastBlendTexture[tcnum][skincolor];
+	ntex = &model->texture->swrastTexture;
 
-	InitColorLUT(&rsp_colorlookup, pMasterPalette, false);
+	InitColorLUT(&swrtex_colorlookup, pMasterPalette, false);
 
 	// base texture
 	if (!tcnum)
@@ -825,10 +855,10 @@ void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, skincolornum_t skin
 
 		if (ntex->data)
 			Z_Free(ntex->data);
-		ntex->data = Z_Calloc(size * sizeof(UINT16), PU_SOFTPOLY, NULL);
+		ntex->data = Z_Calloc(size * sizeof(UINT16), PU_SWRASTERIZER, NULL);
 
 		for (i = 0; i < size; i++)
-			ntex->data[i] = ((image[i].s.alpha << 8) | GetColorLUT(&rsp_colorlookup, image[i].s.red, image[i].s.green, image[i].s.blue));
+			ntex->data[i] = ((image[i].s.alpha << 8) | GetColorLUT(&swrtex_colorlookup, image[i].s.red, image[i].s.green, image[i].s.blue));
 	}
 	else
 	{
@@ -847,7 +877,7 @@ void RSP_CreateModelTexture(modelinfo_t *model, INT32 tcnum, skincolornum_t skin
 
 		ttex->width = texture->width;
 		ttex->height = texture->height;
-		ttex->data = Z_Calloc(size * sizeof(UINT16), PU_SOFTPOLY, NULL);
+		ttex->data = Z_Calloc(size * sizeof(UINT16), PU_SWRASTERIZER, NULL);
 
 		blendcolor = V_GetColor(0); // initialize
 		memset(translation, 0, sizeof(translation));
@@ -992,7 +1022,7 @@ skippixel:
 					}
 				}
 
-				ttex->data[i] = ((image[i].s.alpha << 8) | GetColorLUT(&rsp_colorlookup, r, g, b));
+				ttex->data[i] = ((image[i].s.alpha << 8) | GetColorLUT(&swrtex_colorlookup, r, g, b));
 			}
 		}
 	}
@@ -1000,7 +1030,7 @@ skippixel:
 
 #undef SETBRIGHTNESS
 
-void RSP_FreeModelTexture(modelinfo_t *model)
+void SWRast_FreeModelTexture(modelinfo_t *model)
 {
 	modeltexturedata_t *texture = model->texture->base;
 	if (texture)
@@ -1010,15 +1040,14 @@ void RSP_FreeModelTexture(modelinfo_t *model)
 		texture->data = NULL;
 	}
 
-	// Free polyrenderer memory.
-	if (model->texture->rsp_tex.data)
-		Z_Free(model->texture->rsp_tex.data);
-	model->texture->rsp_tex.data = NULL;
-	model->texture->rsp_tex.width = 1;
-	model->texture->rsp_tex.height = 1;
+	if (model->texture->swrastTexture.data)
+		Z_Free(model->texture->swrastTexture.data);
+	model->texture->swrastTexture.data = NULL;
+	model->texture->swrastTexture.width = 1;
+	model->texture->swrastTexture.height = 1;
 }
 
-void RSP_FreeModelBlendTexture(modelinfo_t *model)
+void SWRast_FreeModelBlendTexture(modelinfo_t *model)
 {
 	modeltexturedata_t *blendtexture = model->texture->blend;
 	if (blendtexture)
