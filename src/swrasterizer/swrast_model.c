@@ -111,6 +111,9 @@ static void SetTransform(mobj_t *mobj, modelinfo_t *md2, spriteframe_t *sprframe
 	mTransform->translation.z = z;
 	mTransform->rotation.y = ANGLE_180 - ang;
 
+	mTransform->scale.y = (mVerticalFlip) ? -FRACUNIT : FRACUNIT;
+	mTransform->scale.z = (mHorizontalFlip) ? -FRACUNIT : FRACUNIT;
+
 	if (mobj->eflags & MFE_VERTICALFLIP)
 		mTransform->translation.y += mobj->height;
 
@@ -295,7 +298,6 @@ boolean SWRast_RenderModel(vissprite_t *spr)
 {
 	SWRast_Texture *texture;
 	INT32 durs, tics;
-	float z1, z2;
 	float finalscale;
 	float pol = 0.0f;
 
@@ -635,10 +637,8 @@ boolean SWRast_RenderModel(vissprite_t *spr)
 						}
 					}
 
-					z1 = vz * (mVerticalFlip ? -1 : 1);
-
 					triangle.vertices[j].position.x = FloatToFixed(vx);
-					triangle.vertices[j].position.y = FloatToFixed(z1);
+					triangle.vertices[j].position.y = FloatToFixed(vz);
 					triangle.vertices[j].position.z = FloatToFixed(vy);
 				}
 				else
@@ -700,12 +700,9 @@ boolean SWRast_RenderModel(vissprite_t *spr)
 						}
 					}
 
-					z1 = pz1 * (mVerticalFlip ? -1 : 1);
-					z2 = pz2 * (mVerticalFlip ? -1 : 1);
-
 					lx = FPInterpolate(px1, px2, pol);
 					ly = FPInterpolate(py1, py2, pol);
-					lz = FPInterpolate(z1, z2, pol);
+					lz = FPInterpolate(pz1, pz2, pol);
 
 					if (SWRastState->modelLighting)
 					{
