@@ -92,6 +92,16 @@
 #define SWRAST_COMPUTE_DEPTH 1  // PC inevitably computes depth, so enable it
 #endif
 
+#ifndef SWRAST_FAST_LERP_QUALITY
+	/** Quality (scaling) of SOME (stepped) linear interpolations. 0 will most
+	likely be a tiny bit faster, but artifacts can occur for bigger tris, while
+	higher values can fix this -- in theory all higher values will have the same
+	speed (it is a shift value), but it mustn't be too high to prevent
+	overflow. */
+
+	#define SWRAST_FAST_LERP_QUALITY 4
+#endif
+
 #ifndef SWRAST_COMPUTE_DEPTH
 	/** Whether to compute depth for each pixel (fragment). Some other options
 	may turn this on automatically. If you don't need depth information, turning
@@ -143,16 +153,6 @@
 
 #if SWRAST_NEAR_CLIPPING_PLANE <= 0
 #define SWRAST_NEAR_CLIPPING_PLANE 1 // Can't be <= 0.
-#endif
-
-#ifndef SWRAST_FAST_LERP_QUALITY
-	/** Quality (scaling) of SOME (stepped) linear interpolations. 0 will most
-	likely be a tiny bit faster, but artifacts can occur for bigger tris, while
-	higher values can fix this -- in theory all higher values will have the same
-	speed (it is a shift value), but it mustn't be too high to prevent
-	overflow. */
-
-	#define SWRAST_FAST_LERP_QUALITY 1
 #endif
 
 #endif

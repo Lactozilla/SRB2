@@ -117,8 +117,8 @@ static inline void InitPixelInfo(SWRast_Fragment *p)
 
 typedef struct
 {
-	fixed_t valueScaled;
-	fixed_t stepScaled;
+	INT32 valueScaled;
+	INT32 stepScaled;
 } SWRast_FastLerpState;
 
 #define GetFastLerpValue(state)\
@@ -126,6 +126,55 @@ typedef struct
 
 #define StepFastLerp(state)\
 	state.valueScaled += state.stepScaled
+
+// This numerator is a number by which we divide values for the reciprocals.
+#if SWRAST_PERSPECTIVE_CORRECTION == 1
+	#define Z_RECIP_NUMERATOR (16386 * FRACUNIT)
+#elif SWRAST_PERSPECTIVE_CORRECTION == 2
+	#define Z_RECIP_NUMERATOR (Z_FRACTIONS_PER_UNIT * Z_FRACTIONS_PER_UNIT)
+
+	#define Z_RECIP_UNIT_BITS 9
+	#define Z_RECIP_UNIT_SHIFT (FRACBITS - Z_RECIP_UNIT_BITS)
+
+	#define Z_FRACTIONS_PER_UNIT (1 << Z_RECIP_UNIT_BITS)
+	#define Z_RECIP_NUMERATOR (Z_FRACTIONS_PER_UNIT * Z_FRACTIONS_PER_UNIT)
+#endif
+
+static inline INT32 ZPCInterpolate(INT32 v1, INT32 v2, INT32 t, INT32 tMax)
+{
+#if SWRAST_PERSPECTIVE_CORRECTION == 2
+	return v1 + ((v2 - v1) * t) / tMax;
+#else
+	return v1 + FixedDiv(FixedMul((v2 - v1), t), tMax);
+#endif
+}
+
+static inline INT32 ZPCInterpolateByUnit(INT32 v1, INT32 v2, INT32 t)
+{
+#if SWRAST_PERSPECTIVE_CORRECTION == 2
+	return v1 + ((v2 - v1) * t) / Z_FRACTIONS_PER_UNIT;
+#else
+	return v1 + FixedMul((v2 - v1), t);
+#endif
+}
+
+static inline INT32 ZPCInterpolateByUnitFrom0(INT32 v2, INT32 t)
+{
+#if SWRAST_PERSPECTIVE_CORRECTION == 2
+	return (v2 * t) / Z_FRACTIONS_PER_UNIT;
+#else
+	return FixedMul(v2, t);
+#endif
+}
+
+static inline INT32 ZPCInterpolateFrom0(INT32 v2, INT32 t, INT32 tMax)
+{
+#if SWRAST_PERSPECTIVE_CORRECTION == 2
+	return (v2 * t) / tMax;
+#else
+	return FixedDiv(FixedMul(v2, t), tMax);
+#endif
+}
 
 void SWRast_RasterizeTriangle(SWRast_Vec4 point0, SWRast_Vec4 point1, SWRast_Vec4 point2)
 {
@@ -297,13 +346,15 @@ void SWRast_RasterizeTriangle(SWRast_Vec4 point0, SWRast_Vec4 point1, SWRast_Vec
 #if SWRAST_PERSPECTIVE_CORRECTION != 0
 	// PC is done by linearly interpolating reciprocals from which the corrected
 	// values can be computed. See http://www.lysator.liu.se/~mikaelk/doc/perspectivetexture/
-
-	// This numerator is a number by which we divide values for the reciprocals.
-	#define Z_RECIP_NUMERATOR (16386 * FRACUNIT)
-
-	tPointRecipZ = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(tPointSS->z));
-	lPointRecipZ = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(lPointSS->z));
-	rPointRecipZ = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(rPointSS->z));
+	#if SWRAST_PERSPECTIVE_CORRECTION == 1
+		tPointRecipZ = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(tPointSS->z));
+		lPointRecipZ = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(lPointSS->z));
+		rPointRecipZ = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(rPointSS->z));
+	#elif SWRAST_PERSPECTIVE_CORRECTION == 2
+		tPointRecipZ = Z_RECIP_NUMERATOR / SWRast_NonZero(tPointSS->z >> Z_RECIP_UNIT_SHIFT);
+		lPointRecipZ = Z_RECIP_NUMERATOR / SWRast_NonZero(lPointSS->z >> Z_RECIP_UNIT_SHIFT);
+		rPointRecipZ = Z_RECIP_NUMERATOR / SWRast_NonZero(rPointSS->z >> Z_RECIP_UNIT_SHIFT);
+	#endif
 
 	lRecip0 = tPointRecipZ;
 	lRecip1 = lPointRecipZ;
@@ -321,7 +372,7 @@ void SWRast_RasterizeTriangle(SWRast_Vec4 point0, SWRast_Vec4 point1, SWRast_Vec
 
 	// Clip to the screen in y dimension
 	// Clipping above the screen (y < 0) can't be easily done here, will be handled inside the loop.
-	endY = SWRast_min(endY,SWRastState->viewWindow[SWRAST_VIEW_WINDOW_Y2]);
+	endY = SWRast_min(endY, SWRastState->viewWindow[SWRAST_VIEW_WINDOW_Y2]);
 
 	// Draw the triangle from top to bottom.
 	// The bottom-most row is left out because, following from the rasterization rules (see start of the file),
@@ -391,11 +442,11 @@ void SWRast_RasterizeTriangle(SWRast_Vec4 point0, SWRast_Vec4 point1, SWRast_Vec
 			lT = GetFastLerpValue(lSideFLS);
 			rT = GetFastLerpValue(rSideFLS);
 
-			lOverZ  = SWRast_InterpolateByUnitFrom0(lRecip1,lT);
-			lRecipZ = SWRast_InterpolateByUnit(lRecip0,lRecip1,lT);
+			lOverZ  = ZPCInterpolateByUnitFrom0(lRecip1,lT);
+			lRecipZ = ZPCInterpolateByUnit(lRecip0,lRecip1,lT);
 
-			rOverZ  = SWRast_InterpolateByUnitFrom0(rRecip1,rT);
-			rRecipZ = SWRast_InterpolateByUnit(rRecip0,rRecip1,rT);
+			rOverZ  = ZPCInterpolateByUnitFrom0(rRecip1,rT);
+			rRecipZ = ZPCInterpolateByUnit(rRecip0,rRecip1,rT);
 	#else
 			SWRast_FastLerpState b0FLS, b1FLS;
 
@@ -438,13 +489,10 @@ void SWRast_RasterizeTriangle(SWRast_Vec4 point0, SWRast_Vec4 point1, SWRast_Vec
 #endif
 
 #if SWRAST_PERSPECTIVE_CORRECTION == 2
-			depthPC.valueScaled =
-				(FixedDiv(Z_RECIP_NUMERATOR,
-				SWRast_NonZero(SWRast_Interpolate(lRecipZ,rRecipZ,i,rowLength))))
-				<< SWRAST_FAST_LERP_QUALITY;
+			depthPC.valueScaled = (Z_RECIP_NUMERATOR / SWRast_NonZero(ZPCInterpolate(lRecipZ, rRecipZ, i, rowLength))) << SWRAST_FAST_LERP_QUALITY;
 
-			b0PC.valueScaled = FixedDiv(FixedMul(SWRast_InterpolateFrom0(rOverZ,i,rowLength), depthPC.valueScaled), Z_RECIP_NUMERATOR);
-			b1PC.valueScaled = FixedDiv(FixedMul(SWRast_InterpolateFrom0(lOverZ,i,rowLength), depthPC.valueScaled), Z_RECIP_NUMERATOR);
+			b0PC.valueScaled = (ZPCInterpolateFrom0(rOverZ, i, rowLength) * depthPC.valueScaled) / (Z_RECIP_NUMERATOR / Z_FRACTIONS_PER_UNIT);
+			b1PC.valueScaled = ((lOverZ - ZPCInterpolateFrom0(lOverZ, i, rowLength)) * depthPC.valueScaled) / (Z_RECIP_NUMERATOR / Z_FRACTIONS_PER_UNIT);
 
 			rowCount = SWRAST_PC_APPROX_LENGTH;
 #endif
@@ -474,48 +522,47 @@ void SWRast_RasterizeTriangle(SWRast_Vec4 point0, SWRast_Vec4 point1, SWRast_Vec
 
 #if SWRAST_COMPUTE_DEPTH
 	#if SWRAST_PERSPECTIVE_CORRECTION == 1
-				p.depth = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(SWRast_Interpolate(lRecipZ,rRecipZ,i,rowLength)));
+				p.depth = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(SWRast_Interpolate(lRecipZ, rRecipZ, i, rowLength)));
 	#elif SWRAST_PERSPECTIVE_CORRECTION == 2
 				if (rowCount >= SWRAST_PC_APPROX_LENGTH)
 				{
 					// init the linear interpolation to the next PC correct value
-					fixed_t nextI = i + SWRAST_PC_APPROX_LENGTH;
+					INT32 nextI = i + SWRAST_PC_APPROX_LENGTH;
 
 					rowCount = 0;
 
 					if (nextI < rowLength)
 					{
-						fixed_t nextValue, nextDepthScaled = (FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(SWRast_Interpolate(lRecipZ,rRecipZ,nextI,rowLength)))) << SWRAST_FAST_LERP_QUALITY;
+						INT32 nextDepthScaled = (Z_RECIP_NUMERATOR / SWRast_NonZero(ZPCInterpolate(lRecipZ, rRecipZ, nextI, rowLength))) << SWRAST_FAST_LERP_QUALITY, nextValue;
 
 						depthPC.stepScaled = (nextDepthScaled - depthPC.valueScaled) / SWRAST_PC_APPROX_LENGTH;
 
-						nextValue = FixedDiv(FixedMul(SWRast_InterpolateFrom0(rOverZ,nextI,rowLength), nextDepthScaled), Z_RECIP_NUMERATOR);
+						nextValue = (ZPCInterpolateFrom0(rOverZ, nextI, rowLength) * nextDepthScaled) / (Z_RECIP_NUMERATOR / Z_FRACTIONS_PER_UNIT);
 						b0PC.stepScaled = (nextValue - b0PC.valueScaled) / SWRAST_PC_APPROX_LENGTH;
 
-						nextValue = FixedDiv(FixedMul(lOverZ - SWRast_InterpolateFrom0(lOverZ,nextI,rowLength), nextDepthScaled), Z_RECIP_NUMERATOR);
+						nextValue = ((lOverZ - ZPCInterpolateFrom0(lOverZ, nextI, rowLength)) * nextDepthScaled) / (Z_RECIP_NUMERATOR / Z_FRACTIONS_PER_UNIT);
 						b1PC.stepScaled = (nextValue - b1PC.valueScaled) / SWRAST_PC_APPROX_LENGTH;
 					}
 					else
 					{
 						// A special case where we'd be interpolating outside the triangle.
 						// It seems like a valid approach at first, but it creates a bug
-						// in a case when the rasaterized triangle is near screen 0 and can
+						// in a case when the rasterized triangle is near screen 0 and can
 						// actually never reach the extrapolated screen position. So we
 						// have to clamp to the actual end of the triangle here.
-
 						fixed_t maxI = SWRast_NonZero(rowLength - i);
-						fixed_t nextValue, nextDepthScaled = FixedDiv(Z_RECIP_NUMERATOR, SWRast_NonZero(rRecipZ)) << SWRAST_FAST_LERP_QUALITY;
+						fixed_t nextValue, nextDepthScaled = (Z_RECIP_NUMERATOR / SWRast_NonZero(rRecipZ)) << SWRAST_FAST_LERP_QUALITY;
 
 						depthPC.stepScaled = (nextDepthScaled - depthPC.valueScaled) / maxI;
 
-						nextValue = FixedDiv(FixedMul(rOverZ, nextDepthScaled), Z_RECIP_NUMERATOR);
+						nextValue = (rOverZ * nextDepthScaled) / (Z_RECIP_NUMERATOR / Z_FRACTIONS_PER_UNIT);
 
 						b0PC.stepScaled = (nextValue - b0PC.valueScaled) / maxI;
 						b1PC.stepScaled = -1 * b1PC.valueScaled / maxI;
 					}
 				}
 
-				p.depth = GetFastLerpValue(depthPC);
+				p.depth = GetFastLerpValue(depthPC)<<Z_RECIP_UNIT_SHIFT;
 	#else
 				p.depth = GetFastLerpValue(depthFLS);
 				StepFastLerp(depthFLS);
@@ -539,8 +586,8 @@ void SWRast_RasterizeTriangle(SWRast_Vec4 point0, SWRast_Vec4 point1, SWRast_Vec
 					*barycentric0 = GetFastLerpValue(b0FLS);
 					*barycentric1 = GetFastLerpValue(b1FLS);
 	#elif SWRAST_PERSPECTIVE_CORRECTION == 1
-					*barycentric0 = FixedDiv(FixedMul(SWRast_InterpolateFrom0(rOverZ,i,rowLength), p.depth), Z_RECIP_NUMERATOR);
-					*barycentric1 = FixedDiv(FixedMul(lOverZ - SWRast_InterpolateFrom0(lOverZ,i,rowLength), p.depth), Z_RECIP_NUMERATOR);
+					*barycentric0 = FixedDiv(FixedMul(SWRast_InterpolateFrom0(rOverZ, i, rowLength), p.depth), Z_RECIP_NUMERATOR);
+					*barycentric1 = FixedDiv(FixedMul(lOverZ - SWRast_InterpolateFrom0(lOverZ, i, rowLength), p.depth), Z_RECIP_NUMERATOR);
 	#elif SWRAST_PERSPECTIVE_CORRECTION == 2
 					*barycentric0 = GetFastLerpValue(b0PC);
 					*barycentric1 = GetFastLerpValue(b1PC);
@@ -599,5 +646,14 @@ void SWRast_RasterizeTriangle(SWRast_Vec4 point0, SWRast_Vec4 point1, SWRast_Vec
 	#undef initPC
 	#undef initSide
 	#undef stepSide
-	#undef Z_RECIP_NUMERATOR
+
+	#if SWRAST_PERSPECTIVE_CORRECTION != 0
+		#undef Z_RECIP_NUMERATOR
+	#endif
 }
+
+#if SWRAST_PERSPECTIVE_CORRECTION == 2
+	#undef Z_FRACTIONS_PER_UNIT
+	#undef Z_RECIP_UNIT_SHIFT
+	#undef Z_RECIP_UNIT_BITS
+#endif
