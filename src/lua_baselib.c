@@ -155,6 +155,8 @@ static const struct {
 	{META_PIVOTLIST,    "spriteframepivot_t[]"},
 	{META_FRAMEPIVOT,   "spriteframepivot_t"},
 
+	{META_TAGLIST,      "taglist"},
+
 	{META_MOBJ,         "mobj_t"},
 	{META_MAPTHING,     "mapthing_t"},
 
@@ -163,6 +165,8 @@ static const struct {
 	{META_SKIN,         "skin_t"},
 	{META_POWERS,       "player_t.powers"},
 	{META_SOUNDSID,     "skin_t.soundsid"},
+	{META_SKINSPRITES,  "skin_t.sprites"},
+	{META_SKINSPRITESLIST,  "skin_t.sprites[]"},
 
 	{META_VERTEX,       "vertex_t"},
 	{META_LINE,         "line_t"},
@@ -184,6 +188,9 @@ static const struct {
 	{META_CVAR,         "consvar_t"},
 
 	{META_SECTORLINES,  "sector_t.lines"},
+#ifdef MUTABLE_TAGS
+	{META_SECTORTAGLIST, "sector_t.taglist"},
+#endif
 	{META_SIDENUM,      "line_t.sidenum"},
 	{META_LINEARGS,     "line_t.args"},
 	{META_LINESTRINGARGS, "line_t.stringargs"},
@@ -425,7 +432,7 @@ static int lib_pAproxDistance(lua_State *L)
 	fixed_t dx = luaL_checkfixed(L, 1);
 	fixed_t dy = luaL_checkfixed(L, 2);
 	//HUDSAFE
-	lua_pushfixed(L, P_AproxDistance(dx, dy));
+	lua_pushfixed(L, R_PointToDist2(0, 0, dx, dy));
 	return 1;
 }
 
@@ -964,6 +971,28 @@ static int lib_pMaceRotate(lua_State *L)
 		return LUA_ErrInvalid(L, "mobj_t");
 	P_MaceRotate(center, baserot, baseprevrot);
 	return 0;
+}
+
+static int lib_pCreateFloorSpriteSlope(lua_State *L)
+{
+	mobj_t *mobj = *((mobj_t **)luaL_checkudata(L, 1, META_MOBJ));
+	NOHUD
+	INLEVEL
+	if (!mobj)
+		return LUA_ErrInvalid(L, "mobj_t");
+	LUA_PushUserdata(L, (pslope_t *)P_CreateFloorSpriteSlope(mobj), META_SLOPE);
+	return 1;
+}
+
+static int lib_pRemoveFloorSpriteSlope(lua_State *L)
+{
+	mobj_t *mobj = *((mobj_t **)luaL_checkudata(L, 1, META_MOBJ));
+	NOHUD
+	INLEVEL
+	if (!mobj)
+		return LUA_ErrInvalid(L, "mobj_t");
+	P_RemoveFloorSpriteSlope(mobj);
+	return 1;
 }
 
 static int lib_pRailThinker(lua_State *L)
@@ -3785,6 +3814,8 @@ static luaL_Reg lib[] = {
 	{"P_CheckSolidLava",lib_pCheckSolidLava},
 	{"P_CanRunOnWater",lib_pCanRunOnWater},
 	{"P_MaceRotate",lib_pMaceRotate},
+	{"P_CreateFloorSpriteSlope",lib_pCreateFloorSpriteSlope},
+	{"P_RemoveFloorSpriteSlope",lib_pRemoveFloorSpriteSlope},
 	{"P_RailThinker",lib_pRailThinker},
 	{"P_XYMovement",lib_pXYMovement},
 	{"P_RingXYMovement",lib_pRingXYMovement},

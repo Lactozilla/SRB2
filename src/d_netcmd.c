@@ -215,11 +215,9 @@ consvar_t cv_respawntime = CVAR_INIT ("respawndelay", "3", CV_SAVE|CV_NETVAR|CV_
 
 consvar_t cv_competitionboxes = CVAR_INIT ("competitionboxes", "Mystery", CV_SAVE|CV_NETVAR|CV_CHEAT, competitionboxes_cons_t, NULL);
 
-#ifdef SEENAMES
 static CV_PossibleValue_t seenames_cons_t[] = {{0, "Off"}, {1, "Colorless"}, {2, "Team"}, {3, "Ally/Foe"}, {0, NULL}};
 consvar_t cv_seenames = CVAR_INIT ("seenames", "Ally/Foe", CV_SAVE, seenames_cons_t, 0);
 consvar_t cv_allowseenames = CVAR_INIT ("allowseenames", "Yes", CV_SAVE|CV_NETVAR, CV_YesNo, NULL);
-#endif
 
 // names
 consvar_t cv_playername = CVAR_INIT ("name", "Sonic", CV_SAVE|CV_CALL|CV_NOINIT, NULL, Name_OnChange);
@@ -375,6 +373,7 @@ consvar_t cv_sleep = CVAR_INIT ("cpusleep", "1", CV_SAVE, sleeping_cons_t, NULL)
 static CV_PossibleValue_t perfstats_cons_t[] = {
 	{0, "Off"}, {1, "Rendering"}, {2, "Logic"}, {3, "ThinkFrame"}, {0, NULL}};
 consvar_t cv_perfstats = CVAR_INIT ("perfstats", "Off", 0, perfstats_cons_t, NULL);
+consvar_t cv_freedemocamera = CVAR_INIT("freedemocamera", "Off", CV_SAVE, CV_OnOff, NULL);
 
 char timedemo_name[256];
 boolean timedemo_csv;
@@ -597,9 +596,7 @@ void D_RegisterServerCommands(void)
 	CV_RegisterVar(&cv_pingtimeout);
 	CV_RegisterVar(&cv_showping);
 
-#ifdef SEENAMES
-	 CV_RegisterVar(&cv_allowseenames);
-#endif
+	CV_RegisterVar(&cv_allowseenames);
 
 	CV_RegisterVar(&cv_dummyconsvar);
 }
@@ -670,6 +667,7 @@ void D_RegisterClientCommands(void)
 	CV_RegisterVar(&cv_zlib_strategya);
 	CV_RegisterVar(&cv_zlib_window_bitsa);
 	CV_RegisterVar(&cv_apng_delay);
+	CV_RegisterVar(&cv_apng_downscale);
 	// GIF variables
 	CV_RegisterVar(&cv_gif_optimize);
 	CV_RegisterVar(&cv_gif_downscale);
@@ -679,10 +677,6 @@ void D_RegisterClientCommands(void)
 	CV_RegisterVar(&cv_videoencoder_bitrate);
 	CV_RegisterVar(&cv_videoencoder_gopsize);
 	CV_RegisterVar(&cv_videoencoder_downscale);
-
-#ifdef WALLSPLATS
-	CV_RegisterVar(&cv_splats);
-#endif
 
 	// register these so it is saved to config
 	CV_RegisterVar(&cv_playername);
@@ -698,9 +692,7 @@ void D_RegisterClientCommands(void)
 	CV_RegisterVar(&cv_defaultplayercolor2);
 	CV_RegisterVar(&cv_defaultskin2);
 
-#ifdef SEENAMES
 	CV_RegisterVar(&cv_seenames);
-#endif
 	CV_RegisterVar(&cv_rollingdemos);
 	CV_RegisterVar(&cv_netstat);
 	CV_RegisterVar(&cv_netticbuffer);
@@ -884,6 +876,8 @@ void D_RegisterClientCommands(void)
 	CV_RegisterVar(&cv_mapthingnum);
 //	CV_RegisterVar(&cv_grid);
 //	CV_RegisterVar(&cv_snapto);
+
+	CV_RegisterVar(&cv_freedemocamera);
 
 	// add cheat commands
 	COM_AddCommand("noclip", Command_CheatNoClip_f);
@@ -2141,7 +2135,7 @@ static void Command_Pause(void)
 
 	if (cv_pause.value || server || (IsPlayerAdmin(consoleplayer)))
 	{
-		if (modeattacking || !(gamestate == GS_LEVEL || gamestate == GS_INTERMISSION))
+		if (modeattacking || !(gamestate == GS_LEVEL || gamestate == GS_INTERMISSION) || (marathonmode && gamestate == GS_INTERMISSION))
 		{
 			CONS_Printf(M_GetText("You can't pause here.\n"));
 			return;
@@ -3300,7 +3294,13 @@ static void Command_Addfile(void)
 			if (!isprint(fn[i]) || fn[i] == ';')
 				return;
 
-		musiconly = W_VerifyNMUSlumps(fn);
+		musiconly = W_VerifyNMUSlumps(fn, false);
+
+		if (musiconly == -1)
+		{
+			addedfiles[numfilesadded++] = fn;
+			continue;
+		}
 
 		if (!musiconly)
 		{
@@ -3612,8 +3612,7 @@ static void Command_Playintro_f(void)
   */
 FUNCNORETURN static ATTRNORETURN void Command_Quit_f(void)
 {
-	if (Playing())
-		LUAh_GameQuit();
+	LUAh_GameQuit(true);
 	I_Quit();
 }
 
@@ -4275,8 +4274,7 @@ void Command_ExitGame_f(void)
 {
 	INT32 i;
 
-	if (Playing())
-		LUAh_GameQuit();
+	LUAh_GameQuit(false);
 
 	D_QuitNetGame();
 	CL_Reset();

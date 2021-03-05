@@ -101,6 +101,7 @@ static boolean Encoder_IsRecordingGIF(void)
 // AUDIO OUTPUT
 //
 
+#if 0
 static boolean Encoder_AddAudioStream(encoderstream_t *ost, AVFormatContext *oc, enum AVCodecID codec_id)
 {
 	AVCodecContext *c;
@@ -166,6 +167,7 @@ static boolean Encoder_AddAudioStream(encoderstream_t *ost, AVFormatContext *oc,
 
 	return true;
 }
+#endif
 
 static AVFrame *Encoder_AllocateAudioFrame(enum AVSampleFormat sample_fmt, uint64_t channel_layout, int sample_rate, int nb_samples)
 {
@@ -692,7 +694,8 @@ boolean VideoEncoder_Start(const char *filename)
 	}
 
 	// Write the stream header, if any.
-	avformat_write_header(formatcontext, NULL);
+	if (avformat_write_header(formatcontext, NULL) < 0)
+		return false;
 
 	bitdepth = (Encoder_IsRecordingGIF() ? sizeof(UINT8) : sizeof(UINT32));
 	stream->buffer = Z_Calloc(stream->width * stream->height * bitdepth, PU_STATIC, NULL);

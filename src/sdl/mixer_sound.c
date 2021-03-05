@@ -37,6 +37,8 @@
 #include "../sounds.h"
 #include "../s_sound.h"
 #include "../i_sound.h"
+#include "../m_misc.h"
+#include "../m_videoencoder.h"
 #include "../w_wad.h"
 #include "../z_zone.h"
 #include "../byteptr.h"
@@ -1292,8 +1294,9 @@ void I_UnloadSong(void)
 	}
 }
 
-void mix_videoencoder(void *udata, Uint8 *stream, int len)
+static void mix_videoencoder(int channel, void *stream, int len, void *udata)
 {
+	(void)channel;
 	(void)udata;
 	if (M_IsRecordingVideo())
 		VideoEncoder_WriteAudio((INT16 *)stream, len);
@@ -1307,6 +1310,10 @@ boolean I_PlaySong(boolean looping)
 	if (gme)
 	{
 		gme_equalizer_t eq = {GME_TREBLE, GME_BASS, 0,0,0,0,0,0,0,0};
+#if defined (GME_VERSION) && GME_VERSION >= 0x000603
+		if (looping)
+			gme_set_autoload_playback_limit(gme, 0);
+#endif
 		gme_set_equalizer(gme, &eq);
 		gme_start_track(gme, 0);
 		current_track = 0;
