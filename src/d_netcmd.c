@@ -677,6 +677,8 @@ void D_RegisterClientCommands(void)
 	CV_RegisterVar(&cv_videoencoder_bitrate);
 	CV_RegisterVar(&cv_videoencoder_gopsize);
 	CV_RegisterVar(&cv_videoencoder_downscale);
+	CV_RegisterVar(&cv_videoencoder_audiorate);
+	CV_RegisterVar(&cv_videoencoder_audio);
 
 	// register these so it is saved to config
 	CV_RegisterVar(&cv_playername);

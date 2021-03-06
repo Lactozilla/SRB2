@@ -1,6 +1,6 @@
 // SONIC ROBO BLAST 2
 //-----------------------------------------------------------------------------
-// Copyright (C) 2020 by Jaime Ita Passos.
+// Copyright (C) 2020-2021 by Jaime Ita Passos.
 // Copyright (C) 2003 by Fabrice Bellard.
 //
 // This program is free software distributed under the
@@ -24,12 +24,15 @@
 #include "hardware/hw_main.h"
 #endif
 
-CV_PossibleValue_t video_bitrate_cons_t[] = {{1, "MIN"}, {100, "MAX"}, {0, NULL}};
-CV_PossibleValue_t video_gop_cons_t[] = {{(FRACUNIT / 2), "MIN"}, {(5 * FRACUNIT), "MAX"}, {0, NULL}};
+static CV_PossibleValue_t video_bitrate_cons_t[] = {{1, "MIN"}, {100, "MAX"}, {0, NULL}};
+static CV_PossibleValue_t video_audiorate_cons_t[] = {{8, "MIN"}, {512, "MAX"}, {0, NULL}};
+static CV_PossibleValue_t video_gop_cons_t[] = {{(FRACUNIT / 2), "MIN"}, {(5 * FRACUNIT), "MAX"}, {0, NULL}};
 
 consvar_t cv_videoencoder_bitrate   = CVAR_INIT ("videoencoder_bitrate", "50", CV_SAVE, video_bitrate_cons_t, NULL);
 consvar_t cv_videoencoder_gopsize   = CVAR_INIT ("videoencoder_gopsize", "1.0", CV_SAVE | CV_FLOAT, video_gop_cons_t, NULL);
 consvar_t cv_videoencoder_downscale = CVAR_INIT ("videoencoder_downscale", "Off", CV_SAVE, CV_OnOff, NULL);
+consvar_t cv_videoencoder_audio     = CVAR_INIT ("videoencoder_audio", "On", CV_SAVE, CV_OnOff, NULL);
+consvar_t cv_videoencoder_audiorate = CVAR_INIT ("videoencoder_audio_bitrate", "384", CV_SAVE, video_audiorate_cons_t, NULL);
 
 #ifdef HAVE_LIBAV
 
@@ -85,11 +88,9 @@ static encoderstream_t audiostream = {0};
 static AVOutputFormat *outputformat;
 static AVFormatContext *formatcontext;
 
-static boolean encoding_audio = false;
-
 static INT32 Encoder_GetFramerate(void)
 {
-	return TICRATE;
+	return NEWTICRATE;
 }
 
 static boolean Encoder_IsRecordingGIF(void)
@@ -97,12 +98,58 @@ static boolean Encoder_IsRecordingGIF(void)
 	return (outputformat->video_codec == AV_CODEC_ID_GIF);
 }
 
+static void Encoder_CloseStream(encoderstream_t *stream);
+
 //
 // AUDIO OUTPUT
 //
 
-#if 0
-static boolean Encoder_AddAudioStream(encoderstream_t *ost, AVFormatContext *oc, enum AVCodecID codec_id)
+#define AUDIO_STREAM_NAME "audiostream.raw"
+
+static char *audio_out_filename;
+static FILE *audio_out_stream;
+static size_t audio_out_size;
+
+static boolean encoding_audio = false;
+static boolean recording_audio = false;
+
+boolean VideoEncoder_IsRecordingAudio(void)
+{
+	return recording_audio;
+}
+
+boolean VideoEncoder_RecordAudio(INT16 *stream, int len)
+{
+	if (encoding_audio && audio_out_stream)
+	{
+		if (fwrite(stream, len / 2, sizeof(INT16), audio_out_stream) < sizeof(INT16))
+		{
+			CONS_Alert(CONS_ERROR, "VideoEncoder_RecordAudio: Could not write into audio buffer\n");
+			fclose(audio_out_stream);
+			audio_out_stream = NULL;
+		}
+		else
+			return true;
+	}
+
+	return false;
+}
+
+static boolean Encoder_CanRecordAudio(void)
+{
+	if (!cv_videoencoder_audio.value || Encoder_IsRecordingGIF())
+		return false;
+
+	// I'm not sure personally how to deal with audio codecs,
+	// and the output in AVI sounds bad, so I'm restricting
+	// audio recording to H.264.
+	if (outputformat->video_codec != AV_CODEC_ID_H264)
+		return false;
+
+	return (outputformat->audio_codec != AV_CODEC_ID_NONE);
+}
+
+static boolean Encoder_AddAudioStream(encoderstream_t *stream, AVFormatContext *oc, enum AVCodecID codec_id)
 {
 	AVCodecContext *c;
 	AVCodec *codec;
@@ -111,14 +158,14 @@ static boolean Encoder_AddAudioStream(encoderstream_t *ost, AVFormatContext *oc,
 	codec = avcodec_find_encoder(codec_id);
 	if (!codec)
 	{
-		CONS_Alert(CONS_ERROR, "Codec not found\n");
+		CONS_Alert(CONS_ERROR, "Audio codec not found\n");
 		return false;
 	}
 
-	ost->st = avformat_new_stream(oc, NULL);
-	if (!ost->st)
+	stream->st = avformat_new_stream(oc, NULL);
+	if (!stream->st)
 	{
-		CONS_Alert(CONS_ERROR, "Could not allocate audio stream\n");
+		CONS_Alert(CONS_ERROR, "Could not allocate an audio stream\n");
 		return false;
 	}
 
@@ -129,45 +176,39 @@ static boolean Encoder_AddAudioStream(encoderstream_t *ost, AVFormatContext *oc,
 		return false;
 	}
 
-	ost->enc = c;
+	stream->enc = c;
 
-	// put sample parameters
-	c->sample_fmt     = codec->sample_fmts           ? codec->sample_fmts[0]           : AV_SAMPLE_FMT_S16;
-	c->sample_rate    = codec->supported_samplerates ? codec->supported_samplerates[0] : 44100;
-	c->channel_layout = codec->channel_layouts       ? codec->channel_layouts[0]       : AV_CH_LAYOUT_STEREO;
-	c->channels       = av_get_channel_layout_nb_channels(c->channel_layout);
-	c->bit_rate       = 64000;
+	c->sample_fmt = codec->sample_fmts ? codec->sample_fmts[0] : AV_SAMPLE_FMT_S16;
+	c->sample_rate = 44100; //codec->supported_samplerates ? codec->supported_samplerates[0] : 44100;
+	c->channel_layout = codec->channel_layouts ? codec->channel_layouts[0] : AV_CH_LAYOUT_STEREO;
+	c->channels = av_get_channel_layout_nb_channels(c->channel_layout);
+	c->bit_rate = cv_videoencoder_audiorate.value * 1000;
 
-	ost->st->time_base = (AVRational){ 1, c->sample_rate };
+	stream->st->time_base = (AVRational){1, c->sample_rate};
 
-	// some formats want stream headers to be separate
+	// Some formats want stream headers to be separate.
 	if (oc->oformat->flags & AVFMT_GLOBALHEADER)
 		c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
-	ost->swr_ctx = swr_alloc();
+	stream->swr_ctx = swr_alloc();
 
-	if (ost->swr_ctx == NULL)
+	if (stream->swr_ctx == NULL)
 	{
 		CONS_Alert(CONS_ERROR, "Error opening the audio resampling context\n");
 		return false;
 	}
 
-	swr_alloc_set_opts(ost->swr_ctx,
-		c->channel_layout, c->sample_fmt, c->sample_rate,
-		AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, 44100,
-		0, NULL);
+	swr_alloc_set_opts(stream->swr_ctx, c->channel_layout, c->sample_fmt, c->sample_rate, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, 44100, 0, NULL);
+	swr_init(stream->swr_ctx);
 
-	swr_init(ost->swr_ctx);
-
-    if (!swr_is_initialized(ost->swr_ctx))
-    {
-    	CONS_Alert(CONS_ERROR, "Audio resampler has not been properly initialized\n");
+	if (!swr_is_initialized(stream->swr_ctx))
+	{
+		CONS_Alert(CONS_ERROR, "Audio resampler has not been properly initialized\n");
 		return false;
-    }
+	}
 
 	return true;
 }
-#endif
 
 static AVFrame *Encoder_AllocateAudioFrame(enum AVSampleFormat sample_fmt, uint64_t channel_layout, int sample_rate, int nb_samples)
 {
@@ -226,9 +267,7 @@ static boolean Encoder_OpenAudioStream(encoderstream_t *ost)
 	return true;
 }
 
-static INT16 *mixer_audio_buffer = NULL;
-
-static AVFrame *Encoder_GetAudioFrame(INT16 *buf, encoderstream_t *ost)
+static AVFrame *AudioEncoder_GetFrame(INT16 *buf, encoderstream_t *ost)
 {
 	AVFrame *frame = ost->frame;
 
@@ -238,25 +277,25 @@ static AVFrame *Encoder_GetAudioFrame(INT16 *buf, encoderstream_t *ost)
 	if (ret >= 0)
 	{
 		int nb = (int)(1.0 * ost->enc->sample_rate / ost->enc->sample_rate * frame->nb_samples);
-		swr_convert(ost->swr_ctx,
-			(uint8_t **)(frame->extended_data), frame->nb_samples,
-			(const uint8_t **)(&buf), nb);
+		swr_convert(ost->swr_ctx, (UINT8 **)(frame->extended_data), frame->nb_samples, (const UINT8 **)(&buf), nb);
 	}
 	else
 		return NULL;
-
-	frame->pts = ost->next_pts++;
 
 	return frame;
 }
 
 // if a frame is provided, send it to the encoder, otherwise flush the encoder;
 // return 1 when encoding is finished, 0 otherwise
-static int Encoder_WriteAudioFrame(AVFormatContext *oc, encoderstream_t *ost, AVFrame *frame)
+static int AudioEncoder_WriteFrame(AVFormatContext *oc, encoderstream_t *ost, AVFrame *frame)
 {
-	AVPacket pkt = {0}; // data and size must be 0;
+	AVPacket pkt = {0};
+	int ret;
 
-	int ret = avcodec_send_frame(ost->enc, frame);
+	frame->pts = ost->next_pts;
+	ost->next_pts += frame->nb_samples;
+
+	ret = avcodec_send_frame(ost->enc, frame);
 	if (ret < 0)
 	{
 		CONS_Alert(CONS_ERROR, "Error submitting an audio frame for encoding\n");
@@ -271,16 +310,18 @@ static int Encoder_WriteAudioFrame(AVFormatContext *oc, encoderstream_t *ost, AV
 		CONS_Alert(CONS_ERROR, "Error encoding an audio frame\n");
 		return ret;
 	}
-	else if (ret >= 0 || ret == AVERROR(EAGAIN))
+	else if (ret >= 0)
 	{
 		av_packet_rescale_ts(&pkt, ost->enc->time_base, ost->st->time_base);
 		pkt.stream_index = ost->st->index;
 
 		// Write the compressed frame to the media file.
 		ret = av_interleaved_write_frame(oc, &pkt);
+		av_packet_unref(&pkt);
+
 		if (ret < 0)
 		{
-			CONS_Alert(CONS_ERROR, "Error while writing the audio frame\n");
+			CONS_Alert(CONS_ERROR, "Error writing an audio frame\n");
 			return ret;
 		}
 	}
@@ -290,26 +331,97 @@ static int Encoder_WriteAudioFrame(AVFormatContext *oc, encoderstream_t *ost, AV
 
 // encode one audio frame and send it to the muxer
 // return true when encoding is finished, false otherwise
-static boolean Encoder_ProcessAudioStream(INT16 *buf, AVFormatContext *oc, encoderstream_t *ost)
+static boolean AudioEncoder_ProcessStream(INT16 *buf, AVFormatContext *oc, encoderstream_t *ost)
 {
-	AVFrame *frame = Encoder_GetAudioFrame(buf, ost);
+	AVFrame *frame = AudioEncoder_GetFrame(buf, ost);
 	if (frame)
-		Encoder_WriteAudioFrame(oc, ost, frame);
+		AudioEncoder_WriteFrame(oc, ost, frame);
 	return (frame != NULL);
 }
 
-boolean VideoEncoder_WriteAudio(INT16 *stream, int len)
+static void AudioEncoder_GetStreamPath(char *filename)
 {
-	if (!encoding_audio)
-		return false;
+	char *fn = Z_StrDup(filename);
+	char *src = fn + strlen(fn) - 1;
+	size_t baselen = 0, len = 0;
 
-	if (mixer_audio_buffer == NULL)
-		mixer_audio_buffer = Z_Malloc(8192 * sizeof(INT16), PU_STATIC, NULL);
+	while (src != fn)
+	{
+		if (*src == PATHSEP[0])
+		{
+			src++;
+			(*src) = '\0';
+			baselen = (src - fn);
+			len = baselen + strlen(AUDIO_STREAM_NAME) + 1;
+			break;
+		}
+		src--;
+	}
 
-	memcpy(mixer_audio_buffer, stream, (size_t)(len));
-	Encoder_ProcessAudioStream(mixer_audio_buffer, formatcontext, &audiostream);
+	audio_out_filename = ZZ_Alloc(len);
+	snprintf(audio_out_filename, len, "%s%s", fn, AUDIO_STREAM_NAME);
 
-	return true;
+	Z_Free(fn);
+}
+
+static void AudioEncoder_OpenStream(char *filename)
+{
+	AudioEncoder_GetStreamPath(filename);
+	audio_out_stream = fopen(audio_out_filename, "wb");
+}
+
+static void AudioEncoder_EncodeToVideo(void)
+{
+	encoderstream_t *stream = &audiostream;
+	AVCodecContext *c = stream->enc;
+	UINT8 *buf;
+	size_t read;
+	INT32 total = audio_out_size;
+
+	read = c->frame_size * c->channels * 2;
+	buf = calloc(read, 1);
+	if (!buf)
+		return;
+
+	while (total)
+	{
+		if (fread(buf, 1, read, audio_out_stream) < read)
+			break;
+		AudioEncoder_ProcessStream((INT16 *)buf, formatcontext, stream);
+		memset(buf, 0x00, read);
+		total -= read;
+	}
+
+	free(buf);
+}
+
+static void AudioEncoder_Finish(void)
+{
+	if (audio_out_stream)
+		fclose(audio_out_stream);
+
+	if (audio_out_filename)
+	{
+		if (encoding_audio)
+		{
+			audio_out_stream = fopen(audio_out_filename, "rb");
+
+			if (audio_out_stream)
+			{
+				fseek(audio_out_stream, 0, SEEK_END);
+				audio_out_size = ftell(audio_out_stream);
+				fseek(audio_out_stream, 0, SEEK_SET);
+				AudioEncoder_EncodeToVideo();
+				fclose(audio_out_stream);
+			}
+		}
+
+		remove(audio_out_filename);
+		Z_Free(audio_out_filename);
+	}
+
+	audio_out_stream = NULL;
+	audio_out_filename = NULL;
 }
 
 //
@@ -325,27 +437,26 @@ static boolean Encoder_AddVideoStream(encoderstream_t *stream, AVFormatContext *
 	codec = avcodec_find_encoder(codec_id);
 	if (!codec)
 	{
-		CONS_Alert(CONS_ERROR, "Codec not found\n");
+		CONS_Alert(CONS_ERROR, "Video codec not found\n");
 		return false;
 	}
 
 	stream->st = avformat_new_stream(oc, NULL);
 	if (!stream->st)
 	{
-		CONS_Alert(CONS_ERROR, "Could not alloc stream\n");
+		CONS_Alert(CONS_ERROR, "Could not allocate a video stream\n");
 		return false;
 	}
 
 	c = avcodec_alloc_context3(codec);
 	if (!c)
 	{
-		CONS_Alert(CONS_ERROR, "Could not alloc an encoding context\n");
+		CONS_Alert(CONS_ERROR, "Could not allocate a video encoding context\n");
 		return false;
 	}
 
 	stream->enc = c;
 
-	// Put sample parameters.
 	c->width = stream->width;
 	c->height = stream->height;
 	c->bit_rate = cv_videoencoder_bitrate.value * 100000;
@@ -360,12 +471,7 @@ static boolean Encoder_AddVideoStream(encoderstream_t *stream, AVFormatContext *
 	c->gop_size = (int)(FixedToFloat(cv_videoencoder_gopsize.value) * TICRATE);
 	c->pix_fmt = (Encoder_IsRecordingGIF() ? AV_PIX_FMT_PAL8 : AV_PIX_FMT_YUV420P);
 
-	if (c->codec_id == AV_CODEC_ID_MPEG2VIDEO)
-	{
-		// just for testing, we also add B-frames
-		c->max_b_frames = 2;
-	}
-	else if (c->codec_id == AV_CODEC_ID_MPEG1VIDEO)
+	if (c->codec_id == AV_CODEC_ID_MPEG1VIDEO)
 	{
 		// Needed to avoid using macroblocks in which some coeffs overflow.
 		// This does not happen with normal video, it just happens here as
@@ -532,9 +638,7 @@ static AVFrame *Encoder_GetVideoFrame(encoderstream_t *stream)
 		}
 
 		Encoder_ConvertVideoBuffer(stream->buffer, stream->tmp_frame, NULL, c->width, c->height);
-		sws_scale(stream->sws_ctx, (const uint8_t * const *) stream->tmp_frame->data,
-				  stream->tmp_frame->linesize, 0, c->height, stream->frame->data,
-				  stream->frame->linesize);
+		sws_scale(stream->sws_ctx, (const UINT8 * const *) stream->tmp_frame->data, stream->tmp_frame->linesize, 0, c->height, stream->frame->data, stream->frame->linesize);
 	}
 	else
 		Encoder_ConvertVideoBuffer(stream->buffer, stream->frame, stream->palette, c->width, c->height);
@@ -578,7 +682,7 @@ static int Encoder_WriteVideoFrame(AVFormatContext *oc, encoderstream_t *stream)
 		// Write the compressed frame to the media file.
 		ret = av_interleaved_write_frame(oc, &pkt);
 		if (ret < 0)
-			CONS_Alert(CONS_ERROR, "Error while writing video frame\n");
+			CONS_Alert(CONS_ERROR, "Error writing a video frame\n");
 	}
 
 	return ret;
@@ -586,16 +690,29 @@ static int Encoder_WriteVideoFrame(AVFormatContext *oc, encoderstream_t *stream)
 
 static void Encoder_CloseStream(encoderstream_t *stream)
 {
-	avcodec_free_context(&stream->enc);
-	av_frame_free(&stream->frame);
+	if (stream->enc)
+		avcodec_free_context(&stream->enc);
+	stream->enc = NULL;
+
+	if (stream->frame)
+		av_frame_free(&stream->frame);
+	stream->frame = NULL;
 
 	if (stream->type == ENCSTREAM_VIDEO)
 	{
-		av_frame_free(&stream->tmp_frame);
-		sws_freeContext(stream->sws_ctx);
+		if (stream->tmp_frame)
+			av_frame_free(&stream->tmp_frame);
+		if (stream->sws_ctx)
+			sws_freeContext(stream->sws_ctx);
+		stream->tmp_frame = NULL;
+		stream->sws_ctx = NULL;
 	}
 	else if (stream->type == ENCSTREAM_AUDIO)
-		swr_free(&stream->swr_ctx);
+	{
+		if (stream->swr_ctx)
+			swr_free(&stream->swr_ctx);
+		stream->swr_ctx = NULL;
+	}
 
 	stream->next_pts = 0;
 	stream->tic = 0;
@@ -610,7 +727,7 @@ static void Encoder_CloseStream(encoderstream_t *stream)
 }
 #endif
 
-boolean VideoEncoder_Start(const char *filename)
+boolean VideoEncoder_Start(char *filename)
 {
 #ifdef HAVE_LIBAV
 	encoderstream_t *stream = &videostream;
@@ -665,12 +782,22 @@ boolean VideoEncoder_Start(const char *filename)
 	if (!Encoder_AddVideoStream(stream, formatcontext, outputformat->video_codec))
 		return false;
 
-#if 0
-	if (!Encoder_IsRecordingGIF() && outputformat->audio_codec != AV_CODEC_ID_NONE)
-		encoding_audio = Encoder_AddAudioStream(sndstream, formatcontext, outputformat->audio_codec);
+	if (Encoder_CanRecordAudio())
+	{
+		AudioEncoder_OpenStream(filename);
+
+		if (audio_out_stream)
+			recording_audio = encoding_audio = Encoder_AddAudioStream(sndstream, formatcontext, outputformat->audio_codec);
+
+		if (!recording_audio) // damn.................................. Okay
+			CONS_Alert(CONS_WARNING, "Audio will not be recorded\n");
+	}
 	else
-#endif
-		encoding_audio = false;
+	{
+		AudioEncoder_GetStreamPath(filename);
+		AudioEncoder_Finish(); // Remove any leftover audiostream.raw
+		recording_audio = encoding_audio = false;
+	}
 
 	// Now that all the parameters are set, we can open the video codec
 	// and allocate the necessary encode buffers.
@@ -842,6 +969,11 @@ boolean VideoEncoder_Stop(void)
 
 	AVPacket pkt = {0};
 	av_init_packet(&pkt);
+
+	recording_audio = false;
+
+	if (encoding_audio)
+		AudioEncoder_Finish();
 
 	// Give the encoder some frames
 	while (stream->lastpacket == AVERROR(EAGAIN))

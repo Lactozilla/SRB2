@@ -1564,9 +1564,11 @@ static menuitem_t OP_ScreenshotOptionsMenu[] =
 	{IT_STRING|IT_CVAR, NULL, "Strategy",          &cv_zlib_strategya,            110},
 	{IT_STRING|IT_CVAR, NULL, "Window Size",       &cv_zlib_window_bitsa,         115},
 
-	{IT_STRING|IT_CVAR, NULL, "Bit rate",          &cv_videoencoder_bitrate,      95},
-	{IT_STRING|IT_CVAR, NULL, "GOP size",          &cv_videoencoder_gopsize,      100},
-	{IT_STRING|IT_CVAR, NULL, "Downscaling",       &cv_videoencoder_downscale,    105},
+	{IT_STRING|IT_CVAR, NULL, "Bit rate",          &cv_videoencoder_bitrate,       95},
+	{IT_STRING|IT_CVAR, NULL, "Record audio",      &cv_videoencoder_audio,        100},
+	{IT_STRING|IT_CVAR, NULL, "Audio bit rate",    &cv_videoencoder_audiorate,    105},
+	{IT_STRING|IT_CVAR, NULL, "Downscaling",       &cv_videoencoder_downscale,    110},
+	{IT_STRING|IT_CVAR, NULL, "GOP size",          &cv_videoencoder_gopsize,      115},
 };
 
 enum
@@ -1581,7 +1583,7 @@ enum
 	op_screenshot_apng_start = 16,
 	op_screenshot_apng_end = 20,
 	op_screenshot_video_start = 21,
-	op_screenshot_video_end = 23,
+	op_screenshot_video_end = 25,
 };
 
 static menuitem_t OP_EraseDataMenu[] =
