@@ -15,7 +15,7 @@
 #include "z_zone.h"
 #include "v_video.h"
 #include "i_video.h"
-#include "i_system.h" // I_GetTimeMicros
+#include "i_system.h" // I_GetPreciseTime
 #include "m_misc.h"
 #include "r_data.h" // R_GetRGBA*
 #include "st_stuff.h" // st_palette
@@ -77,6 +77,9 @@ typedef struct encoderstream_s
 	int lastpacket;
 	int64_t next_pts;
 	tic_t tic;
+
+	precise_t prevframetime;
+	UINT32 delayus;
 
 	struct SwsContext *sws_ctx;
 	struct SwrContext *swr_ctx;
@@ -619,20 +622,16 @@ static void Encoder_ConvertVideoBuffer(UINT32 *movie_screen, AVFrame *pict, RGBA
 static AVFrame *Encoder_GetVideoFrame(encoderstream_t *stream)
 {
 	AVCodecContext *c = stream->enc;
+	UINT32 rate = Encoder_GetFramerate();
 
 	if (c->pix_fmt != AV_PIX_FMT_YUV420P && !Encoder_IsRecordingGIF())
 	{
 		if (!stream->sws_ctx)
 		{
-			stream->sws_ctx = sws_getContext(c->width, c->height,
-										  AV_PIX_FMT_YUV420P,
-										  c->width, c->height,
-										  c->pix_fmt,
-										  SWS_BICUBIC, NULL, NULL, NULL);
-
+			stream->sws_ctx = sws_getContext(c->width, c->height, AV_PIX_FMT_YUV420P, c->width, c->height, c->pix_fmt, SWS_BICUBIC, NULL, NULL, NULL);
 			if (!stream->sws_ctx)
 			{
-				CONS_Alert(CONS_ERROR, "Cannot initialize the conversion context\n");
+				CONS_Alert(CONS_ERROR, "Could not initialize the conversion context\n");
 				return NULL;
 			}
 		}
@@ -643,7 +642,17 @@ static AVFrame *Encoder_GetVideoFrame(encoderstream_t *stream)
 	else
 		Encoder_ConvertVideoBuffer(stream->buffer, stream->frame, stream->palette, c->width, c->height);
 
-	stream->frame->pts = stream->next_pts++;
+	stream->frame->pts = stream->next_pts;
+	stream->delayus += I_PreciseToMicros(I_GetPreciseTime() - stream->prevframetime);
+
+	if (stream->delayus/1000 > rate)
+	{
+		int frames = (stream->delayus/1000) / rate;
+		stream->next_pts += frames;
+		stream->delayus -= frames*(rate*1000);
+	}
+	else
+		stream->next_pts++;
 
 	return stream->frame;
 }
@@ -826,7 +835,8 @@ boolean VideoEncoder_Start(char *filename)
 
 	bitdepth = (Encoder_IsRecordingGIF() ? sizeof(UINT8) : sizeof(UINT32));
 	stream->buffer = Z_Calloc(stream->width * stream->height * bitdepth, PU_STATIC, NULL);
-	stream->tic = 0;
+	stream->prevframetime = I_GetPreciseTime();
+	stream->delayus = stream->tic = 0;
 
 	return true;
 #else
@@ -953,6 +963,7 @@ boolean VideoEncoder_WriteFrame(void)
 #undef STEPSCREEN
 
 	stream->lastpacket = Encoder_WriteVideoFrame(formatcontext, stream);
+	stream->prevframetime = I_GetPreciseTime();
 	stream->tic++;
 
 #endif
