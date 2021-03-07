@@ -31,7 +31,7 @@ static CV_PossibleValue_t video_gop_cons_t[] = {{(FRACUNIT / 2), "MIN"}, {(5 * F
 consvar_t cv_videoencoder_bitrate   = CVAR_INIT ("videoencoder_bitrate", "50", CV_SAVE, video_bitrate_cons_t, NULL);
 consvar_t cv_videoencoder_gopsize   = CVAR_INIT ("videoencoder_gopsize", "1.0", CV_SAVE | CV_FLOAT, video_gop_cons_t, NULL);
 consvar_t cv_videoencoder_downscale = CVAR_INIT ("videoencoder_downscale", "Off", CV_SAVE, CV_OnOff, NULL);
-consvar_t cv_videoencoder_audio     = CVAR_INIT ("videoencoder_audio", "On", CV_SAVE, CV_OnOff, NULL);
+consvar_t cv_videoencoder_audio     = CVAR_INIT ("videoencoder_audio", "Yes", CV_SAVE, CV_YesNo, NULL);
 consvar_t cv_videoencoder_audiorate = CVAR_INIT ("videoencoder_audio_bitrate", "384", CV_SAVE, video_audiorate_cons_t, NULL);
 
 #ifdef HAVE_LIBAV
