@@ -2494,6 +2494,9 @@ void Moviemode_mode_Onchange(void)
 			cstart = op_screenshot_video_start;
 			cend = op_screenshot_video_end;
 			break;
+		case MM_LIBAV_GIF:
+			cstart = cend = op_screenshot_gif_start;
+			break;
 		default:
 			return;
 	}

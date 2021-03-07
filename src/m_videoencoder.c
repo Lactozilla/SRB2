@@ -17,6 +17,7 @@
 #include "i_video.h"
 #include "i_system.h" // I_GetPreciseTime
 #include "m_misc.h"
+#include "m_anigif.h" // cv_gif_downscale
 #include "r_data.h" // R_GetRGBA*
 #include "st_stuff.h" // st_palette
 
@@ -746,7 +747,7 @@ boolean VideoEncoder_Start(char *filename)
 	// Initialize libavcodec, and register all codecs and formats.
 	av_register_all();
 
-	// Autodetect the output format from the name. Default is MP4.
+	// Detect the output format from the name.
 	outputformat = av_guess_format(NULL, filename, NULL);
 
 	if (!outputformat)
@@ -761,6 +762,12 @@ boolean VideoEncoder_Start(char *filename)
 		return false;
 	}
 
+	if (outputformat->video_codec == AV_CODEC_ID_NONE)
+	{
+		CONS_Alert(CONS_ERROR, "Could not find a video codec\n");
+		return false;
+	}
+
 	// Allocate the output media context.
 	formatcontext = avformat_alloc_context();
 	if (!formatcontext)
@@ -769,10 +776,7 @@ boolean VideoEncoder_Start(char *filename)
 		return false;
 	}
 
-	formatcontext->oformat = outputformat;
-	snprintf(formatcontext->filename, sizeof(formatcontext->filename), "%s", filename);
-
-	if (cv_videoencoder_downscale.value)
+	if ((Encoder_IsRecordingGIF() ? cv_gif_downscale : cv_videoencoder_downscale).value)
 		stream->downscaling = vid.dupx;
 	else
 		stream->downscaling = 1;
@@ -780,17 +784,17 @@ boolean VideoEncoder_Start(char *filename)
 	stream->width = vid.width / stream->downscaling;
 	stream->height = vid.height / stream->downscaling;
 
-	// Add the audio video streams using the default format codecs
-	// and initialize the codecs.
-	if (outputformat->video_codec == AV_CODEC_ID_NONE)
-		return false;
-
 	stream->type = ENCSTREAM_VIDEO;
 	sndstream->type = ENCSTREAM_AUDIO;
 
+	formatcontext->oformat = outputformat;
+	snprintf(formatcontext->filename, sizeof(formatcontext->filename), "%s", filename);
+
+	// Add the video stream
 	if (!Encoder_AddVideoStream(stream, formatcontext, outputformat->video_codec))
 		return false;
 
+	// Add an audio stream, if possible
 	if (Encoder_CanRecordAudio())
 	{
 		AudioEncoder_OpenStream(filename);
@@ -798,7 +802,7 @@ boolean VideoEncoder_Start(char *filename)
 		if (audio_out_stream)
 			recording_audio = encoding_audio = Encoder_AddAudioStream(sndstream, formatcontext, outputformat->audio_codec);
 
-		if (!recording_audio) // damn.................................. Okay
+		if (!recording_audio)
 			CONS_Alert(CONS_WARNING, "Audio will not be recorded\n");
 	}
 	else

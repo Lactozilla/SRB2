@@ -117,7 +117,7 @@ static CV_PossibleValue_t moviemode_cons_t[] = {
 	{MM_AVI, "AVI"},
 	{MM_MKV, "Matroska"},
 	{MM_OGV, "Ogg Video"},
-	{MM_LIBAV_GIF, "GIF (libavcodec)"},
+	{MM_LIBAV_GIF, "GIF muxer"},
 #endif
 	{MM_SCREENSHOT, "Screenshots"},
 	{0, NULL}};
@@ -1173,7 +1173,7 @@ static const char *M_GetVideoFormatName(moviemode_t format)
 		case MM_OGV:
 			return "Ogg Video";
 		case MM_LIBAV_GIF:
-			return "GIF (libavcodec)";
+			return "GIF muxer";
 		default:
 			break;
 	}
