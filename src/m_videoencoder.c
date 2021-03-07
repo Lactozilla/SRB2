@@ -27,7 +27,7 @@
 
 static CV_PossibleValue_t video_bitrate_cons_t[] = {{1, "MIN"}, {100, "MAX"}, {0, NULL}};
 static CV_PossibleValue_t video_audiorate_cons_t[] = {{8, "MIN"}, {512, "MAX"}, {0, NULL}};
-static CV_PossibleValue_t video_gop_cons_t[] = {{(FRACUNIT / 2), "MIN"}, {(5 * FRACUNIT), "MAX"}, {0, NULL}};
+static CV_PossibleValue_t video_gop_cons_t[] = {{0, "MIN"}, {(5 * FRACUNIT), "MAX"}, {0, NULL}};
 
 consvar_t cv_videoencoder_bitrate   = CVAR_INIT ("videoencoder_bitrate", "50", CV_SAVE, video_bitrate_cons_t, NULL);
 consvar_t cv_videoencoder_gopsize   = CVAR_INIT ("videoencoder_gopsize", "1.0", CV_SAVE | CV_FLOAT, video_gop_cons_t, NULL);
