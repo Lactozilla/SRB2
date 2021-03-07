@@ -128,7 +128,7 @@ boolean VideoEncoder_RecordAudio(INT16 *stream, int len)
 	{
 		if (fwrite(stream, len / 2, sizeof(INT16), audio_out_stream) < sizeof(INT16))
 		{
-			CONS_Alert(CONS_ERROR, "VideoEncoder_RecordAudio: Could not write into audio buffer\n");
+			CONS_Alert(CONS_ERROR, "VideoEncoder_RecordAudio: Could not write into the audio buffer\n");
 			fclose(audio_out_stream);
 			audio_out_stream = NULL;
 		}
@@ -207,7 +207,7 @@ static boolean Encoder_AddAudioStream(encoderstream_t *stream, AVFormatContext *
 
 	if (!swr_is_initialized(stream->swr_ctx))
 	{
-		CONS_Alert(CONS_ERROR, "Audio resampler has not been properly initialized\n");
+		CONS_Alert(CONS_ERROR, "Could not initialize the audio resampler\n");
 		return false;
 	}
 
@@ -231,7 +231,7 @@ static AVFrame *Encoder_AllocateAudioFrame(enum AVSampleFormat sample_fmt, uint6
 		int ret = av_frame_get_buffer(frame, 0);
 		if (ret < 0)
 		{
-			CONS_Alert(CONS_ERROR, "Error allocating an audio buffer\n");
+			CONS_Alert(CONS_ERROR, "Error allocating an audio frame\n");
 			return NULL;
 		}
 	}
@@ -530,7 +530,7 @@ static boolean Encoder_OpenVideoStream(encoderstream_t *stream)
 	stream->frame = Encoder_AllocateVideoFrame(c->pix_fmt, c->width, c->height);
 	if (!stream->frame)
 	{
-		CONS_Alert(CONS_ERROR, "Could not allocate picture\n");
+		CONS_Alert(CONS_ERROR, "Could not allocate a video frame for encoding\n");
 		return false;
 	}
 
@@ -543,7 +543,7 @@ static boolean Encoder_OpenVideoStream(encoderstream_t *stream)
 		stream->tmp_frame = Encoder_AllocateVideoFrame(AV_PIX_FMT_YUV420P, c->width, c->height);
 		if (!stream->tmp_frame)
 		{
-			CONS_Alert(CONS_ERROR, "Could not allocate temporary picture\n");
+			CONS_Alert(CONS_ERROR, "Could not allocate a temporary video frame for YUV420P conversion\n");
 			return false;
 		}
 	}
