@@ -76,7 +76,7 @@ typedef struct encoderstream_s
 	RGBA_t *palette;
 
 	int lastpacket;
-	int64_t next_pts;
+	INT64 next_pts;
 	tic_t tic;
 
 	precise_t prevframetime;
@@ -102,7 +102,28 @@ static boolean Encoder_IsRecordingGIF(void)
 	return (outputformat->video_codec == AV_CODEC_ID_GIF);
 }
 
+static boolean Encoder_FormatMatches(const char *format)
+{
+	return (!strcmp(outputformat->name, format));
+}
+
+static boolean Encoder_FormatMatchesList(const char **list)
+{
+	for (; *list; list++)
+	{
+		if (Encoder_FormatMatches(*list))
+			return true;
+	}
+
+	return false;
+}
+
+//
+// PROTOTYPES
+//
+
 static void Encoder_CloseStream(encoderstream_t *stream);
+static void AudioEncoder_Finish(void);
 
 //
 // AUDIO OUTPUT
@@ -139,15 +160,16 @@ boolean VideoEncoder_RecordAudio(INT16 *stream, int len)
 	return false;
 }
 
+static const char *enc_audio_support[] = {"mp4", "matroska", "avi", "ogg", NULL};
+
+static boolean Encoder_FormatSupportsAudio(void)
+{
+	return Encoder_FormatMatchesList(enc_audio_support);
+}
+
 static boolean Encoder_CanRecordAudio(void)
 {
 	if (!cv_videoencoder_audio.value || Encoder_IsRecordingGIF())
-		return false;
-
-	// I'm not sure personally how to deal with audio codecs,
-	// and the output in AVI sounds bad, so I'm restricting
-	// audio recording to H.264.
-	if (outputformat->video_codec != AV_CODEC_ID_H264)
 		return false;
 
 	return (outputformat->audio_codec != AV_CODEC_ID_NONE);
@@ -183,8 +205,8 @@ static boolean Encoder_AddAudioStream(encoderstream_t *stream, AVFormatContext *
 	stream->enc = c;
 
 	c->sample_fmt = codec->sample_fmts ? codec->sample_fmts[0] : AV_SAMPLE_FMT_S16;
-	c->sample_rate = 44100; //codec->supported_samplerates ? codec->supported_samplerates[0] : 44100;
-	c->channel_layout = codec->channel_layouts ? codec->channel_layouts[0] : AV_CH_LAYOUT_STEREO;
+	c->sample_rate = 44100;
+	c->channel_layout = AV_CH_LAYOUT_STEREO;
 	c->channels = av_get_channel_layout_nb_channels(c->channel_layout);
 	c->bit_rate = cv_videoencoder_audiorate.value * 1000;
 
@@ -214,7 +236,7 @@ static boolean Encoder_AddAudioStream(encoderstream_t *stream, AVFormatContext *
 	return true;
 }
 
-static AVFrame *Encoder_AllocateAudioFrame(enum AVSampleFormat sample_fmt, uint64_t channel_layout, int sample_rate, int nb_samples)
+static AVFrame *Encoder_AllocateAudioFrame(enum AVSampleFormat sample_fmt, UINT64 channel_layout, int sample_rate, int nb_samples)
 {
 	AVFrame *frame = av_frame_alloc();
 
@@ -228,25 +250,21 @@ static AVFrame *Encoder_AllocateAudioFrame(enum AVSampleFormat sample_fmt, uint6
 
 	if (nb_samples)
 	{
-		int ret = av_frame_get_buffer(frame, 0);
-		if (ret < 0)
-		{
-			CONS_Alert(CONS_ERROR, "Error allocating an audio frame\n");
+		if (av_frame_get_buffer(frame, 0) < 0)
 			return NULL;
-		}
 	}
+	else
+		return NULL;
 
 	return frame;
 }
 
-static boolean Encoder_OpenAudioStream(encoderstream_t *ost)
+static boolean Encoder_OpenAudioCodec(encoderstream_t *ost)
 {
-	AVCodecContext *c;
-	int nb_samples, ret;
+	AVCodecContext *c = ost->enc;
+	int nb_samples;
 
-	c = ost->enc;
-
-	// open it
+	// Open the codec.
 	if (avcodec_open2(c, NULL, NULL) < 0)
 	{
 		CONS_Alert(CONS_ERROR, "Could not open the audio codec\n");
@@ -258,11 +276,16 @@ static boolean Encoder_OpenAudioStream(encoderstream_t *ost)
 	else
 		nb_samples = c->frame_size;
 
+	// Allocate the audio frame.
 	ost->frame = Encoder_AllocateAudioFrame(c->sample_fmt, c->channel_layout, c->sample_rate, nb_samples);
+	if (ost->frame == NULL)
+	{
+		CONS_Alert(CONS_ERROR, "Could not allocate the audio frame\n");
+		return false;
+	}
 
-	// copy the stream parameters to the muxer
-	ret = avcodec_parameters_from_context(ost->st->codecpar, c);
-	if (ret < 0)
+	// Copy the stream codec parameters to the muxer.
+	if (avcodec_parameters_from_context(ost->st->codecpar, c) < 0)
 	{
 		CONS_Alert(CONS_ERROR, "Could not copy the audio stream parameters\n");
 		return false;
@@ -795,21 +818,31 @@ boolean VideoEncoder_Start(char *filename)
 		return false;
 
 	// Add an audio stream, if possible
+	recording_audio = encoding_audio = false;
+
 	if (Encoder_CanRecordAudio())
 	{
-		AudioEncoder_OpenStream(filename);
+		if (Encoder_FormatSupportsAudio())
+		{
+			AudioEncoder_OpenStream(filename);
 
-		if (audio_out_stream)
-			recording_audio = encoding_audio = Encoder_AddAudioStream(sndstream, formatcontext, outputformat->audio_codec);
+			if (audio_out_stream)
+				encoding_audio = Encoder_AddAudioStream(sndstream, formatcontext, outputformat->audio_codec);
+		}
 
-		if (!recording_audio)
-			CONS_Alert(CONS_WARNING, "Audio will not be recorded\n");
+		if (!encoding_audio)
+		{
+			CONS_Alert(CONS_NOTICE, "Audio will not be recorded\n");
+			AudioEncoder_Finish();
+		}
+		else
+			recording_audio = true;
 	}
 	else
 	{
+		// Remove any leftover audiostream.raw
 		AudioEncoder_GetStreamPath(filename);
-		AudioEncoder_Finish(); // Remove any leftover audiostream.raw
-		recording_audio = encoding_audio = false;
+		AudioEncoder_Finish();
 	}
 
 	// Now that all the parameters are set, we can open the video codec
@@ -817,8 +850,15 @@ boolean VideoEncoder_Start(char *filename)
 	if (!Encoder_OpenVideoStream(stream))
 		return false;
 
+	// Open the audio codec, and allocate the audio frame.
 	if (encoding_audio)
-		encoding_audio = Encoder_OpenAudioStream(sndstream);
+	{
+		if (!Encoder_OpenAudioCodec(sndstream))
+		{
+			AudioEncoder_Finish();
+			recording_audio = encoding_audio = false;
+		}
+	}
 
 	av_dump_format(formatcontext, 0, filename, 1);
 
