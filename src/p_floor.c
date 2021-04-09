@@ -1706,43 +1706,25 @@ void T_RaiseSector(raise_t *raise)
 		P_RecalcPrecipInSector(&sectors[i]);
 }
 
+static void SetCameraScanner(player_t *player, camera_t *thiscam, scanner_t *scanner)
+{
+	if (player->mo)
+	{
+		if (player->mo->subsector->sector == scanner->actionsector)
+		{
+			if (thiscam->scanner.source != scanner)
+				P_SetCameraScanner(thiscam, scanner);
+		}
+		else
+			thiscam->scanner.active = false;
+	}
+}
+
 void T_CameraScanner(scanner_t *scanner)
 {
-	// leveltime is compared to make multiple scanners in one map function correctly.
-	static tic_t lastleveltime = 32000; // any number other than 0 should do here
-	static boolean camerascanned, camerascanned2;
-
-	if (leveltime != lastleveltime) // Back on the first camera scanner
-	{
-		camerascanned = camerascanned2 = false;
-		lastleveltime = leveltime;
-	}
-
-	if (players[displayplayer].mo)
-	{
-		if (players[displayplayer].mo->subsector->sector == scanner->actionsector)
-		{
-			camera.scanner.height = scanner->height;
-			camera.scanner.dist = scanner->dist;
-			camera.scanner.rotate = &scanner->rotate;
-			camerascanned = true;
-		}
-		else if (!camerascanned)
-			P_ResetCameraScanner(&camera);
-	}
-
-	if (splitscreen && players[secondarydisplayplayer].mo)
-	{
-		if (players[secondarydisplayplayer].mo->subsector->sector == scanner->actionsector)
-		{
-			camera2.scanner.height = scanner->height;
-			camera2.scanner.dist = scanner->dist;
-			camera2.scanner.rotate = &scanner->rotate;
-			camerascanned2 = true;
-		}
-		else if (!camerascanned2)
-			P_ResetCameraScanner(&camera2);
-	}
+	SetCameraScanner(&players[displayplayer], &camera, scanner);
+	if (splitscreen)
+		SetCameraScanner(&players[secondarydisplayplayer], &camera2, scanner);
 }
 
 void T_PlaneDisplace(planedisplace_t *pd)

@@ -113,6 +113,8 @@ typedef struct camera_s
 		fixed_t *height;
 		fixed_t *dist;
 		INT32 *rotate;
+		void *source; // scanner_t
+		boolean active;
 	} scanner;
 } camera_t;
 
@@ -132,6 +134,7 @@ void P_ResetCameraScanner(camera_t *thiscam);
 boolean P_TryCameraMove(fixed_t x, fixed_t y, camera_t *thiscam);
 void P_SlideCameraMove(camera_t *thiscam);
 boolean P_MoveChaseCamera(player_t *player, camera_t *thiscam, boolean resetcalled);
+void P_SetCameraScanner(camera_t *thiscam, void *scanner);
 
 INT32 P_GetPlayerControlDirection(player_t *player);
 void P_AddPlayerScore(player_t *player, UINT32 amount);

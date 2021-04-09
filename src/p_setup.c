@@ -3777,7 +3777,7 @@ static void P_InitCamera(void)
 		if (!cv_cam2_dist.changed)
 			CV_Set(&cv_cam2_dist, cv_cam2_dist.defaultvalue);*/
 
-			// Though, I don't think anyone would care about cam_rotate being reset back to the only value that makes sense :P
+		// Though, I don't think anyone would care about cam_rotate being reset back to the only value that makes sense :P
 		if (!cv_cam_rotate.changed)
 			CV_Set(&cv_cam_rotate, cv_cam_rotate.defaultvalue);
 		if (!cv_cam2_rotate.changed)

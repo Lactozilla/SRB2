@@ -9831,7 +9831,9 @@ boolean P_MoveChaseCamera(player_t *player, camera_t *thiscam, boolean resetcall
 			focusangle = localangle2;
 		else
 			focusangle = mo->angle;
-		if (thiscam == &camera)
+		if (thiscam->scanner.rotate)
+			camrotate = (*thiscam->scanner.rotate);
+		else if (thiscam == &camera)
 			camrotate = cv_cam_rotate.value;
 		else if (thiscam == &camera2)
 			camrotate = cv_cam2_rotate.value;
@@ -9909,9 +9911,9 @@ boolean P_MoveChaseCamera(player_t *player, camera_t *thiscam, boolean resetcall
 	}
 
 	if (thiscam->scanner.height)
-		camheight = (*thiscam->scanner.height);
+		camheight = FixedMul((*thiscam->scanner.height), mo->scale);
 	if (thiscam->scanner.dist)
-		camdist = (*thiscam->scanner.dist);
+		camdist = FixedMul((*thiscam->scanner.dist), mo->scale);
 	if (thiscam->scanner.rotate)
 		camrotate = (*thiscam->scanner.rotate);
 
@@ -10474,6 +10476,18 @@ void P_ResetCameraScanner(camera_t *thiscam)
 	thiscam->scanner.height = NULL;
 	thiscam->scanner.dist = NULL;
 	thiscam->scanner.rotate = NULL;
+	thiscam->scanner.source = NULL;
+	thiscam->scanner.active = false;
+}
+
+void P_SetCameraScanner(camera_t *thiscam, void *scanner)
+{
+	scanner_t *source = (scanner_t *)scanner;
+	thiscam->scanner.height = source->height;
+	thiscam->scanner.dist = source->dist;
+	thiscam->scanner.rotate = &source->rotate;
+	thiscam->scanner.source = scanner;
+	thiscam->scanner.active = true;
 }
 
 boolean P_SpectatorJoinGame(player_t *player)
@@ -12435,12 +12449,17 @@ void P_PlayerAfterThink(player_t *player)
 
 	if (player->playerstate == PST_DEAD)
 	{
-		// camera may still move when guy is dead
-		//if (!netgame)
+		if (thiscam)
 		{
-			if (thiscam && thiscam->chase)
+			// Calculate the camera movement.
+			if (thiscam->chase)
 				P_MoveChaseCamera(player, thiscam, false);
+
+			// Disable the camera scanner effect, if no thinkers have activated it this frame.
+			if (thiscam->scanner.source && !thiscam->scanner.active)
+				P_ResetCameraScanner(thiscam);
 		}
+
 		if (player->followmobj)
 		{
 			P_RemoveMobj(player->followmobj);
@@ -12846,9 +12865,14 @@ void P_PlayerAfterThink(player_t *player)
 				player->viewz = player->mo->z + player->mo->height - player->viewheight;
 			else
 				player->viewz = player->mo->z + player->viewheight;
+
 			if (server || addedtogame)
-				P_MoveChaseCamera(player, thiscam, false); // calculate the camera movement
+				P_MoveChaseCamera(player, thiscam, false); // Calculate the camera movement.
 		}
+
+		// Disable the camera scanner effect, if no thinkers have activated it this frame.
+		if (thiscam->scanner.source && !thiscam->scanner.active)
+			P_ResetCameraScanner(thiscam);
 	}
 
 	// spectator invisibility and nogravity.
